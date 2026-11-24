@@ -324,8 +324,17 @@
      只藏内容不藏遮罩，遮罩就会一直盖着，于是"能看见、点不动、暗暗的"。
      做法：先对内容派发一次 click（走 App 自己的 handleCancel，队列前进一位），
            1 秒后内容若还在，连遮罩一起隐藏（只在遮罩里含广告卡时才动它，别误伤系统公告）。 */
+  function __deadsAnnSel() {
+    var c = __deadsCfg().announcementSelectors;
+    return (c && c.length) ? '[class*="' + c[0] + '"]' : '[class*="sc-1fedb97a-0"]';
+  }
+  function __deadsBdSel() {
+    var c = __deadsCfg().backdropSelectors;
+    return (c && c.length) ? '[class*="' + c[0] + '"]' : '[class*="sc-38c554ad-0"]';
+  }
+
   function dismissAnnouncementAd() {
-    var wrap = document.querySelector('[class*="sc-1fedb97a-0"]');
+    var wrap = document.querySelector(__deadsAnnSel());
     if (!wrap) return;
     if (!wrap.__deadsClicked) {
       wrap.__deadsClicked = 1;
@@ -333,15 +342,42 @@
       log('announcement ad dismissed');
     }
     setTimeout(function () {
-      var still = document.querySelector('[class*="sc-1fedb97a-0"]');
+      var still = document.querySelector(__deadsAnnSel());
       if (!still) return;
       hideEl(still);
-      var bd = document.querySelector('[class*="sc-38c554ad-0"]');
-      if (bd && bd.querySelector('[class*="sc-1fedb97a"]')) {
-        hideEl(bd);
-        log('announcement backdrop hidden');
-      }
+      var bd = document.querySelector(__deadsBdSel());
+      if (bd) { hideEl(bd); log('announcement backdrop hidden'); }
     }, 900);
+  }
+
+
+  /* ============ 9. 通用兜底：空的半透明全屏遮罩 ============
+     场景：后台换了弹窗组件，我们没来得及更新选择器，
+     结果内容被挡住/关闭后只剩一层 rgba 黑幕吃触摸。
+     判定：fixed/absolute + 覆盖 ≥90% 视口 + 背景带透明度 + z-index ≥ 10 + 没有任何可交互或媒体子元素。
+     正常弹层一定带 button/img/input，不会被误伤。 */
+  function killEmptyBackdrops() {
+    if (!document.body) return;
+    var vw = innerWidth, vh = innerHeight;
+    var nodes = document.body.querySelectorAll('div,section,aside');
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (el.__deadsHidden || el.__deadsBdChecked) continue;
+      var s;
+      try { s = getComputedStyle(el); } catch (e) { continue; }
+      if (s.position !== 'fixed' && s.position !== 'absolute') continue;
+      var r = el.getBoundingClientRect();
+      if (r.width < vw * 0.9 || r.height < vh * 0.85) continue;
+      var m = ('' + s.backgroundColor).match(/rgba?\(([^)]+)\)/);
+      var alpha = 1;
+      if (m) { var ps = m[1].split(','); if (ps.length === 4) alpha = parseFloat(ps[3]); }
+      if (!(alpha < 0.95)) continue;
+      var z = parseInt(s.zIndex, 10); if (isNaN(z)) z = 0;
+      if (z < 10) continue;
+      if (el.querySelector('button,input,textarea,select,a[href],img,video,canvas,svg')) { el.__deadsBdChecked = 1; continue; }
+      hideEl(el);
+      log('empty backdrop hidden');
+    }
   }
 
   /* ---------- 启动 ---------- */
@@ -350,6 +386,7 @@
     stripAds(document);
     killSplash();
     dismissAnnouncementAd();
+    killEmptyBackdrops();
     skipVideoAd();
 
     var mo = new MutationObserver(function (muts) {
@@ -375,6 +412,7 @@
       ticks++;
       killSplash();
       dismissAnnouncementAd();
+      killEmptyBackdrops();
       skipVideoAd();
       if (ticks > 40) clearInterval(t);
     }, 500);
