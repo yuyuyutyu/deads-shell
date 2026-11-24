@@ -1,5 +1,33 @@
 (function () {
   'use strict';
+
+  /* ================= 快播的硬门禁：必须"主屏启动" =================
+     bundle 里原话:
+       let o = !0 === window.navigator.standalone, A = o;
+       if (!l() && (!i || !A)) throw s("重新导向中..."), Error("stop loading")
+     也就是说 navigator.standalone 不为 true 就直接跳官网下载页。
+     WKWebView 里它是 undefined，这里顶成 true。 */
+  try {
+    var __sa = { configurable: true, get: function () { return true; } };
+    try { Object.defineProperty(window.navigator, 'standalone', __sa); } catch (e) {}
+    if (window.navigator.standalone !== true) {
+      try { Object.defineProperty(Navigator.prototype, 'standalone', __sa); } catch (e) {}
+    }
+  } catch (e) {}
+
+  /* 顺手把 display-mode:standalone 也标上，兼容别的写法 */
+  try {
+    var __mm = window.matchMedia.bind(window);
+    window.matchMedia = function (q) {
+      if (typeof q === 'string' && q.indexOf('display-mode: standalone') >= 0) {
+        return { matches: true, media: q, onchange: null,
+                 addListener: function () {}, removeListener: function () {},
+                 addEventListener: function () {}, removeEventListener: function () {},
+                 dispatchEvent: function () { return false; } };
+      }
+      return __mm(q);
+    };
+  } catch (e) {}
   if (window.__deadsInstalled) return;
   var DEADS_V2 = true;
   window.__deadsInstalled = true;
