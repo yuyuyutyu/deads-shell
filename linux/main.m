@@ -17,6 +17,7 @@ static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac 
 
 @interface ShellVC : UIViewController <WKNavigationDelegate, WKUIDelegate>
 @property (nonatomic, strong) WKWebView *web;
+@property (nonatomic, strong) UITextView *debugView;
 @end
 
 @implementation ShellVC
@@ -60,6 +61,11 @@ static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac 
     self.web.allowsBackForwardNavigationGestures = YES;
     [self.view addSubview:self.web];
 
+    UITapGestureRecognizer *triple = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(onTripleTap:)];
+    triple.numberOfTapsRequired = 3;
+    triple.cancelsTouchesInView = NO;
+    [self.web addGestureRecognizer:triple];
+
     NSString *rulesPath = [[NSBundle mainBundle] pathForResource:@"adblock" ofType:@"json"];
     NSString *rules = rulesPath ? [NSString stringWithContentsOfFile:rulesPath encoding:NSUTF8StringEncoding error:NULL] : nil;
 
@@ -81,6 +87,29 @@ static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac 
     } else {
         [self loadTarget];
     }
+}
+
+- (void)onTripleTap:(UITapGestureRecognizer *)g {
+    if (self.debugView) {
+        [self.debugView removeFromSuperview];
+        self.debugView = nil;
+        return;
+    }
+    __weak typeof(self) weakSelf = self;
+    [self.web evaluateJavaScript:@"window.__deadsReport ? window.__deadsReport() : 'no report fn'"
+               completionHandler:^(id result, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            UITextView *tv = [[UITextView alloc] initWithFrame:UIEdgeInsetsInsetRect(weakSelf.view.bounds, UIEdgeInsetsMake(60, 12, 60, 12))];
+            tv.backgroundColor = [UIColor colorWithWhite:0 alpha:0.92];
+            tv.textColor = [UIColor greenColor];
+            tv.font = [UIFont fontWithName:@"Menlo" size:9] ?: [UIFont systemFontOfSize:9];
+            tv.editable = NO;
+            tv.text = error ? [NSString stringWithFormat:@"ERR %@", error] : [NSString stringWithFormat:@"%@", result];
+            tv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            [weakSelf.view addSubview:tv];
+            weakSelf.debugView = tv;
+        });
+    }];
 }
 
 - (void)loadTarget {

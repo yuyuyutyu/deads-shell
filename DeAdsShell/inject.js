@@ -28,6 +28,28 @@
       return __mm(q);
     };
   } catch (e) {}
+
+  /* ============ 0. 精确命中：styled-components 的 componentId 会原样出现在 class 里 ============
+     sc-d78efdd4-0  FloatPromotionContainer  右下角推广浮层
+     sc-f7182143-3  FloatAdWrapper           右上角圆图广告
+     sc-f7182143-5  FloatAdCloseButton       它的关闭键
+     sc-f7182143-4  FloatAdImage
+     这几个是纯广告节点，直接 display:none，不参与任何业务逻辑。 */
+  function __deadsHideCss() {
+    if (document.querySelector('style[data-deads-css]')) return;
+    var css = [
+      '[class*="sc-d78efdd4-0"]',
+      '[class*="sc-f7182143-3"]',
+      '[class*="sc-f7182143-4"]',
+      '[class*="sc-f7182143-5"]'
+    ].join(',') + '{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important}';
+    var s = document.createElement('style');
+    s.setAttribute('data-deads-css', '1');
+    s.textContent = css;
+    (document.head || document.documentElement).appendChild(s);
+  }
+  __deadsHideCss();
+
   if (window.__deadsInstalled) return;
   var DEADS_V2 = true;
   window.__deadsInstalled = true;
@@ -178,6 +200,30 @@
   };
 
 
+
+  /* ---------- 7. 排障用：三连点屏幕出黑底面板 ---------- */
+  window.__deadsReport = function () {
+    var out = [];
+    var vw = innerWidth, vh = innerHeight;
+    var nodes = document.body ? document.body.querySelectorAll('*') : [];
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      var tag = el.tagName;
+      if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'LINK' || tag === 'META') continue;
+      var s;
+      try { s = getComputedStyle(el); } catch (e) { continue; }
+      if (s.position !== 'fixed' && s.position !== 'absolute') continue;
+      var r = el.getBoundingClientRect();
+      if (r.width * r.height < vw * vh * 0.05) continue;
+      var cls = (el.className || '').toString();
+      var sc = cls.match(/sc-[0-9a-z]+-\d+/g);
+      out.push((sc ? sc.join(',') : '(no sc)') + ' | ' + tag + ' | ' + Math.round(r.left) + ',' + Math.round(r.top) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' | z=' + s.zIndex + ' | ' + cls.slice(0, 60));
+      if (out.length > 60) break;
+    }
+    var head = 'viewport ' + vw + 'x' + vh + '  url=' + location.href.slice(0, 80) + '\n--- fixed/absolute >=5% ---\n';
+    return head + (out.length ? out.join('\n') : 'none');
+  };
+
   /* ============ 6. 悬浮/弹窗广告（FloatPromotion / FloatAd） ============
      bundle 里的组件名：FloatPromotionContainer/Close/Image、FloatAdWrapper/Image/CloseButton/CloseIcon
      形态：position:fixed 的图片块 + 一个小方块 X（在图片下方或角上）。
@@ -188,12 +234,24 @@
       if (s.position !== 'fixed' && s.position !== 'absolute') return false;
       if (s.display === 'none' || s.visibility === 'hidden') return false;
       var r = el.getBoundingClientRect();
-      if (r.width < 80 || r.height < 80) return false;
+      if (r.width < 55 || r.height < 55) return false;
       if (r.width > innerWidth * 0.96 && r.height > innerHeight * 0.9) return false; // 全屏交给 killSplash
+      // <img>
       var imgs = el.getElementsByTagName('img');
       for (var i = 0; i < imgs.length; i++) {
         var ir = imgs[i].getBoundingClientRect();
-        if (ir.width >= 90 && ir.height >= 90) return true;
+        if (ir.width >= 55 && ir.height >= 55) return true;
+      }
+      // background-image（快播的推广图就是 background-image / 自定义 source:picture 组件）
+      var bg = '' + (s.backgroundImage || '');
+      if (bg.indexOf('url(') >= 0 && r.width >= 55 && r.height >= 55) return true;
+      var kids = el.querySelectorAll('div,picture,source');
+      for (var k = 0; k < kids.length; k++) {
+        var ks = getComputedStyle(kids[k]);
+        if (('' + ks.backgroundImage).indexOf('url(') >= 0) {
+          var kr = kids[k].getBoundingClientRect();
+          if (kr.width >= 55 && kr.height >= 55) return true;
+        }
       }
       return false;
     } catch (e) { return false; }
@@ -232,7 +290,12 @@
       el.__deadsFloat = 1;
       var btn = findCloseButton(el);
       if (btn) {
-        try { btn.click(); btn.dispatchEvent(new MouseEvent('click', { bubbles: true })); } catch (e) {}
+        try {
+          btn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+          btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+          btn.click();
+          btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        } catch (e) {}
       }
       (function (node, target) {
         setTimeout(function () {
