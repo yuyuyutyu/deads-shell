@@ -67,6 +67,19 @@
 
   window.__deads = { blocked: 0, removed: 0 };
 
+  /* 只隐藏，永不 removeChild。
+     React 的 portal 被外部删掉后，下一次 reconcile 会抛 NotFoundError，
+     整棵树崩掉 -> 就是你说的"一滑动全部灰屏"。 */
+  function hideEl(el) {
+    if (!el || el.nodeType !== 1 || el.__deadsHidden) return;
+    try {
+      el.__deadsHidden = 1;
+      el.style.setProperty('display', 'none', 'important');
+      el.style.setProperty('visibility', 'hidden', 'important');
+      el.style.setProperty('pointer-events', 'none', 'important');
+    } catch (e) {}
+  }
+
   /* ---------- 1. 直接掐掉广告资源 ---------- */
   function isAdNode(n) {
     if (!n || n.nodeType !== 1) return false;
@@ -80,7 +93,7 @@
     var list = root.querySelectorAll ? root.querySelectorAll('img,iframe,script,embed,video,source') : [];
     for (var i = 0; i < list.length; i++) {
       if (isAdNode(list[i])) {
-        try { list[i].remove(); window.__deads.blocked++; } catch (e) {}
+        try { hideEl(list[i]); window.__deads.blocked++; } catch (e) {}
       }
     }
   }
@@ -132,7 +145,7 @@
               setTimeout(function () {
                 try {
                   if (target.isConnected && target.parentNode) {
-                    target.parentNode.removeChild(target);
+                    hideEl(target);
                     window.__deads.removed++;
                     log('splash removed');
                   }
@@ -153,7 +166,7 @@
       var v = vs[i];
       var s = v.currentSrc || v.src || '';
       if (s && AD_HOST.test(s)) {
-        try { v.remove(); window.__deads.blocked++; } catch (e) {}
+        try { hideEl(v); window.__deads.blocked++; } catch (e) {}
         continue;
       }
       if (v.duration && isFinite(v.duration) && v.duration > 5 && v.currentTime < 6) {
@@ -233,6 +246,9 @@
       var s = getComputedStyle(el);
       if (s.position !== 'fixed' && s.position !== 'absolute') return false;
       if (s.display === 'none' || s.visibility === 'hidden') return false;
+      // 纯图片、几乎没文案才算广告（业务浮层一定有文字）
+      var txt = (el.textContent || '').replace(/\s+/g, '');
+      if (txt.length > 8) return false;
       var r = el.getBoundingClientRect();
       if (r.width < 55 || r.height < 55) return false;
       if (r.width > innerWidth * 0.96 && r.height > innerHeight * 0.9) return false; // 全屏交给 killSplash
@@ -288,30 +304,10 @@
       if (el.__deadsFloat) continue;
       if (!isFloating(el)) continue;
       el.__deadsFloat = 1;
-      var btn = findCloseButton(el);
-      if (btn) {
-        try {
-          btn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
-          btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-          btn.click();
-          btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-        } catch (e) {}
-      }
-      (function (node, target) {
-        setTimeout(function () {
-          try {
-            if (node.isConnected && node.parentNode) {
-              // 点了还在 => 直接拔
-              var stillVisible = node.getBoundingClientRect().height > 0;
-              if (!target || stillVisible) {
-                node.parentNode.removeChild(node);
-                window.__deads.removed++;
-                log('float ad removed');
-              }
-            }
-          } catch (e) {}
-        }, 1200);
-      })(el, btn);
+      // 绝不点击（这类广告的 X 常常是跳转陷阱），只隐藏
+      hideEl(el);
+      window.__deads.removed++;
+      log('float ad hidden');
     }
   }
 
@@ -330,7 +326,7 @@
           for (var j = 0; j < m.addedNodes.length; j++) {
             var n = m.addedNodes[j];
             if (n.nodeType === 1) {
-              if (isAdNode(n)) { try { n.remove(); } catch (e) {} continue; }
+              if (isAdNode(n)) { try { hideEl(n); } catch (e) {} continue; }
               stripAds(n);
               killFloatAds();
             }
