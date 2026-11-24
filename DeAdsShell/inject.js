@@ -177,11 +177,87 @@
     return rawOpen ? rawOpen.apply(window, arguments) : null;
   };
 
+
+  /* ============ 6. 悬浮/弹窗广告（FloatPromotion / FloatAd） ============
+     bundle 里的组件名：FloatPromotionContainer/Close/Image、FloatAdWrapper/Image/CloseButton/CloseIcon
+     形态：position:fixed 的图片块 + 一个小方块 X（在图片下方或角上）。
+     策略：先找 X 真点它（走 App 自己的关闭逻辑，最干净）；1.2 秒还在就整块删。 */
+  function isFloating(el) {
+    try {
+      var s = getComputedStyle(el);
+      if (s.position !== 'fixed' && s.position !== 'absolute') return false;
+      if (s.display === 'none' || s.visibility === 'hidden') return false;
+      var r = el.getBoundingClientRect();
+      if (r.width < 80 || r.height < 80) return false;
+      if (r.width > innerWidth * 0.96 && r.height > innerHeight * 0.9) return false; // 全屏交给 killSplash
+      var imgs = el.getElementsByTagName('img');
+      for (var i = 0; i < imgs.length; i++) {
+        var ir = imgs[i].getBoundingClientRect();
+        if (ir.width >= 90 && ir.height >= 90) return true;
+      }
+      return false;
+    } catch (e) { return false; }
+  }
+
+  function findCloseButton(root) {
+    var all = root.querySelectorAll('div,span,a,button,i,img,svg');
+    var best = null, bestScore = -1e9;
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      var r = el.getBoundingClientRect();
+      if (r.width < 10 || r.height < 10 || r.width > 64 || r.height > 64) continue;
+      var txt = (el.textContent || '').trim();
+      if (txt.length > 2) continue;
+      var score = 0;
+      if (/close|skip|btn-?close|x/i.test((el.className || '').toString() + ' ' + (el.id || ''))) score += 3;
+      if (el.tagName === 'IMG' || el.tagName === 'SVG' || el.tagName === 'I') score += 2;
+      if (/^(×|✕|╳|x|X)$/.test(txt)) score += 4;
+      // 越靠容器边缘越像关闭键
+      var er = root.getBoundingClientRect();
+      var dx = Math.min(Math.abs(r.left - er.left), Math.abs(er.right - r.right));
+      var dy = Math.min(Math.abs(r.top - er.top), Math.abs(er.bottom - r.bottom));
+      if (dx < 24 || dy < 24) score += 2;
+      if (score > bestScore) { bestScore = score; best = el; }
+    }
+    return bestScore >= 2 ? best : null;
+  }
+
+  function killFloatAds() {
+    if (!document.body) return;
+    var nodes = document.body.querySelectorAll('div,aside,section');
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (el.__deadsFloat) continue;
+      if (!isFloating(el)) continue;
+      el.__deadsFloat = 1;
+      var btn = findCloseButton(el);
+      if (btn) {
+        try { btn.click(); btn.dispatchEvent(new MouseEvent('click', { bubbles: true })); } catch (e) {}
+      }
+      (function (node, target) {
+        setTimeout(function () {
+          try {
+            if (node.isConnected && node.parentNode) {
+              // 点了还在 => 直接拔
+              var stillVisible = node.getBoundingClientRect().height > 0;
+              if (!target || stillVisible) {
+                node.parentNode.removeChild(node);
+                window.__deads.removed++;
+                log('float ad removed');
+              }
+            }
+          } catch (e) {}
+        }, 1200);
+      })(el, btn);
+    }
+  }
+
   /* ---------- 启动 ---------- */
   function boot() {
     stub();
     stripAds(document);
     killSplash();
+    killFloatAds();
     skipVideoAd();
 
     var mo = new MutationObserver(function (muts) {
@@ -193,6 +269,7 @@
             if (n.nodeType === 1) {
               if (isAdNode(n)) { try { n.remove(); } catch (e) {} continue; }
               stripAds(n);
+              killFloatAds();
             }
           }
         }
@@ -205,6 +282,7 @@
     var t = setInterval(function () {
       ticks++;
       killSplash();
+      killFloatAds();
       skipVideoAd();
       if (ticks > 40) clearInterval(t);
     }, 500);
