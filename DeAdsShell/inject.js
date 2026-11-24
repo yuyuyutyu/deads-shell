@@ -314,11 +314,42 @@
     }
   }
 
+
+  /* ============ 8. 公告弹窗：把"广告内容"和"黑色遮罩"一起收掉 ============
+     bundle 里的结构：
+       sc-38c554ad-0  Styled__Wrapper  position:fixed;width:100%;height:100%;
+                                     z-index:var(--layer-fullpage-modal);background:rgba(0,0,0,.5)
+                                     —— 这层是全屏遮罩，挡住所有点击
+       sc-1fedb97a-0  Styled__Wrapper  广告卡（居中，z-index:999），它的 onClick=handleCancel
+     只藏内容不藏遮罩，遮罩就会一直盖着，于是"能看见、点不动、暗暗的"。
+     做法：先对内容派发一次 click（走 App 自己的 handleCancel，队列前进一位），
+           1 秒后内容若还在，连遮罩一起隐藏（只在遮罩里含广告卡时才动它，别误伤系统公告）。 */
+  function dismissAnnouncementAd() {
+    var wrap = document.querySelector('[class*="sc-1fedb97a-0"]');
+    if (!wrap) return;
+    if (!wrap.__deadsClicked) {
+      wrap.__deadsClicked = 1;
+      try { wrap.click(); } catch (e) {}
+      log('announcement ad dismissed');
+    }
+    setTimeout(function () {
+      var still = document.querySelector('[class*="sc-1fedb97a-0"]');
+      if (!still) return;
+      hideEl(still);
+      var bd = document.querySelector('[class*="sc-38c554ad-0"]');
+      if (bd && bd.querySelector('[class*="sc-1fedb97a"]')) {
+        hideEl(bd);
+        log('announcement backdrop hidden');
+      }
+    }, 900);
+  }
+
   /* ---------- 启动 ---------- */
   function boot() {
     stub();
     stripAds(document);
     killSplash();
+    dismissAnnouncementAd();
     skipVideoAd();
 
     var mo = new MutationObserver(function (muts) {
@@ -330,6 +361,7 @@
             if (n.nodeType === 1) {
               if (isAdNode(n)) { try { hideEl(n); } catch (e) {} continue; }
               stripAds(n);
+              dismissAnnouncementAd();
             }
           }
         }
@@ -342,6 +374,7 @@
     var t = setInterval(function () {
       ticks++;
       killSplash();
+      dismissAnnouncementAd();
       skipVideoAd();
       if (ticks > 40) clearInterval(t);
     }, 500);
