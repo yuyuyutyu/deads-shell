@@ -1,11 +1,12 @@
 (function () {
   'use strict';
   if (window.__deadsInstalled) return;
+  var DEADS_V2 = true;
   window.__deadsInstalled = true;
 
   var AD_HOST = /(doubleclick|googlesyndication|googleadservices|adservice\.google|adsterra|popads|propellerads|onclickads|exoclick|juicyads|trafficjunky|adnxs|adsrvr|tanx\.com|gdt\.qq\.com|e\.qq\.com|pangolin|pangle|bytedance|kuaishou|umeng|cnzz|51\.la|mobads|cpro\.baidu|adview|applovin|unityads|vungle|chartboost|ironsrc|mopub|inmobi|criteo|taboola|outbrain|mgid|revcontent|adskeeper|splashad|adtrack|csjad|ksad|growingio|sensorsdata|hm\.baidu\.com|google-analytics|googletagmanager)/i;
 
-  var SKIP_TEXT = /^(跳过|跳过广告|跳过\s*\d*|skip|skip\s*ad|关闭|关闭广告|close|×|✕|╳|x)$/i;
+  var SKIP_TEXT = /^(跳过|跳过广告|跳过预览|跳过\s*\d*|进入|立即进入|skip|skip\s*ad|跳过此广告|关闭|关闭广告|close|×|✕|╳|x)$/i;
   var COUNTDOWN = /(\d{1,2}\s*[sS秒])|s\s*后(跳|关|进)/;
 
   function log() {
@@ -71,7 +72,7 @@
         var el = node.children[i];
         if (bigOverlay(el)) {
           var body = el.textContent || '';
-          if (COUNTDOWN.test(body) || /广告|advertisement|sponsor/i.test(body) || findSkip(el)) {
+          if (COUNTDOWN.test(body) || /广告|advertisement|sponsor|Entertainment|进入/i.test(body) || findSkip(el)) {
             var btn = findSkip(el);
             if (btn) {
               try { btn.click(); btn.dispatchEvent(new MouseEvent('click', { bubbles: true })); } catch (e) {}

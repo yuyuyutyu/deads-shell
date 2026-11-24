@@ -3,7 +3,7 @@
 #import <WebKit/WebKit.h>
 #import <Foundation/Foundation.h>
 
-static NSString *const kTargetURL = @"https://y9372h05ent.3t4z2ymudt.site/?c=hgti&x=hkyoNWHktEG8B9dRVNm7i7mNt%2Fb1XLaxCutlSK7qpQ8%3D&id=1fde65665c160ef861052374818fe052&h=904cdc4ef55a0390f79ee05cddbb1285a426bab1f16de0e015f395aa852f797c&conf_version=4";
+static NSString *const kTargetURL = @"https://5agh2k05web.yqsudp.com/?c=hgti&x=hkyoNWHktEG8B9dRVNm7i7mNt%2Fb1XLaxCutlSK7qpQ8%3D&id=1fde65665c160ef861052374818fe052&h=904cdc4ef55a0390f79ee05cddbb1285a426bab1f16de0e015f395aa852f797c&conf_version=4";
 static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1";
 
 @interface DeadLog : NSObject <WKScriptMessageHandler>
@@ -100,6 +100,21 @@ static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac 
 
 - (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error {
     NSLog(@"[deads] load failed: %@", error);
+    if (error.code == NSURLErrorCancelled) { return; }
+    [self showError:error.localizedDescription];
+}
+
+- (void)showError:(NSString *)msg {
+    if (self.presentedViewController) { return; }
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"加载失败"
+                                                               message:msg
+                                                        preferredStyle:UIAlertControllerStyleAlert];
+    __weak typeof(self) weakSelf = self;
+    [ac addAction:[UIAlertAction actionWithTitle:@"重试" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+        [weakSelf loadTarget];
+    }]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"关闭" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:ac animated:YES completion:nil];
 }
 
 #pragma mark - WKUIDelegate
