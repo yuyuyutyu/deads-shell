@@ -41,7 +41,10 @@
       '[class*="sc-d78efdd4-0"]',
       '[class*="sc-f7182143-3"]',
       '[class*="sc-f7182143-4"]',
-      '[class*="sc-f7182143-5"]'
+      '[class*="sc-f7182143-5"]',
+      '[class*="sc-1fedb97a-0"]',
+      '[class*="sc-1fedb97a-1"]',
+      '[class*="sc-1fedb97a-2"]'
     ].join(',') + '{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important}';
     var s = document.createElement('style');
     s.setAttribute('data-deads-css', '1');
@@ -135,7 +138,7 @@
         var el = node.children[i];
         if (bigOverlay(el)) {
           var body = el.textContent || '';
-          if (COUNTDOWN.test(body) || /广告|advertisement|sponsor|Entertainment|进入/i.test(body) || findSkip(el)) {
+          if (COUNTDOWN.test(body) || /广告|advertisement/i.test(body)) {
             var btn = findSkip(el);
             if (btn) {
               try { btn.click(); btn.dispatchEvent(new MouseEvent('click', { bubbles: true })); } catch (e) {}
@@ -316,7 +319,6 @@
     stub();
     stripAds(document);
     killSplash();
-    killFloatAds();
     skipVideoAd();
 
     var mo = new MutationObserver(function (muts) {
@@ -328,7 +330,6 @@
             if (n.nodeType === 1) {
               if (isAdNode(n)) { try { hideEl(n); } catch (e) {} continue; }
               stripAds(n);
-              killFloatAds();
             }
           }
         }
@@ -341,7 +342,6 @@
     var t = setInterval(function () {
       ticks++;
       killSplash();
-      killFloatAds();
       skipVideoAd();
       if (ticks > 40) clearInterval(t);
     }, 500);
