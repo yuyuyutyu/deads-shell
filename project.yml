@@ -1,0 +1,30 @@
+name: DeAdsShell
+options:
+  bundleIdPrefix: com.deads
+  deploymentTarget:
+    iOS: "13.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    CODE_SIGN_STYLE: Automatic
+    TARGETED_DEVICE_FAMILY: "1,2"
+targets:
+  DeAdsShell:
+    type: application
+    platform: iOS
+    sources:
+      - path: DeAdsShell
+        excludes:
+          - "Info.plist"
+          - "inject.js"
+          - "adblock.json"
+    resources:
+      - path: DeAdsShell/inject.js
+      - path: DeAdsShell/adblock.json
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.deads.shell
+        INFOPLIST_FILE: DeAdsShell/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
