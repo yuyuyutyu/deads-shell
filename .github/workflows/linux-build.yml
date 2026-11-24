@@ -64,6 +64,7 @@ jobs:
           cp linux/Info.plist "$APP/Info.plist"
           cp DeAdsShell/inject.js "$APP/inject.js"
           cp DeAdsShell/adblock.json "$APP/adblock.json"
+          cp linux/icons/*.png "$APP/"
           printf 'APPL????' > "$APP/PkgInfo"
           cd build
           zip -qry ../DeAds-unsigned.ipa Payload
