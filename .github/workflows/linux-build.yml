@@ -1,0 +1,78 @@
+name: linux-build-ipa
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          set -e
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq clang lld zip unzip curl python3 > /dev/null
+          clang --version | head -n 1
+          if ! command -v ld64.lld >/dev/null 2>&1; then
+            sudo ln -sf "$(command -v lld)" /usr/bin/ld64.lld || true
+          fi
+          ls -l /usr/bin/ld64.lld || true
+
+      - name: Fetch iOS SDK
+        run: |
+          set -e
+          curl -sL --retry 3 --max-time 600 -o sdk.zip https://codeload.github.com/theos/sdks/zip/refs/heads/master
+          ls -lh sdk.zip
+          unzip -q sdk.zip
+          SDK=$(ls -d sdks-master/*.sdk | sort -V | tail -n 1)
+          echo "SDK=$PWD/$SDK" >> "$GITHUB_ENV"
+          echo "chosen: $SDK"
+          ls "$SDK/usr/lib" | head -n 10 || true
+
+      - name: Cross compile
+        run: |
+          set -e
+          APP="$PWD/build/Payload/DeAds.app"
+          mkdir -p "$APP"
+          STARTFLAGS=""
+          if [ ! -f "$SDK/usr/lib/crt1.o" ]; then
+            echo "no crt1.o -> -nostartfiles -e _main"
+            STARTFLAGS="-nostartfiles -e _main"
+          fi
+          clang -target arm64-apple-ios14.0 -isysroot "$SDK" -fobjc-arc -O2 $STARTFLAGS \
+            -framework UIKit -framework WebKit -framework Foundation \
+            -fuse-ld=lld -Wl,-platform_version,ios,14.0,16.5 \
+            linux/main.m -o "$APP/DeAds" || \
+          clang -target arm64-apple-ios14.0 -isysroot "$SDK" -fobjc-arc -O2 $STARTFLAGS \
+            -framework UIKit -framework WebKit -framework Foundation \
+            -fuse-ld=lld \
+            linux/main.m -o "$APP/DeAds"
+          file "$APP/DeAds" || true
+          ls -lh "$APP/DeAds"
+          python3 linux/check_macho.py "$APP/DeAds"
+          python3 linux/fix_platform.py "$APP/DeAds"
+          python3 linux/check_macho.py "$APP/DeAds"
+
+      - name: Package IPA
+        run: |
+          set -e
+          APP="$PWD/build/Payload/DeAds.app"
+          cp linux/Info.plist "$APP/Info.plist"
+          cp DeAdsShell/inject.js "$APP/inject.js"
+          cp DeAdsShell/adblock.json "$APP/adblock.json"
+          printf 'APPL????' > "$APP/PkgInfo"
+          cd build
+          zip -qry ../DeAds-unsigned.ipa Payload
+          cd ..
+          ls -lh DeAds-unsigned.ipa
+          unzip -l DeAds-unsigned.ipa | head -n 20
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeAds-unsigned-ipa
+          path: DeAds-unsigned.ipa
+          if-no-files-found: error
