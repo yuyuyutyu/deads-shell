@@ -457,8 +457,7 @@
     s.setAttribute('data-deads-n04', '1');
     s.textContent = [
       '[class*="custom-player-ad-container"]{display:none!important;visibility:hidden!important;pointer-events:none!important}',
-      '[class*="is-preroll"]{display:none!important;visibility:hidden!important}',
-      '[class*="fixed-page"]:has([class*="bar-box"]){display:none!important;visibility:hidden!important;pointer-events:none!important}'
+      '[class*="is-preroll"]{display:none!important;visibility:hidden!important}'
     ].join('');
     (document.head || document.documentElement).appendChild(s);
   }
@@ -496,15 +495,18 @@
 
   // 开屏/引导层：有"跳过"就点它（App 自己的逻辑），再整层隐藏
   function killGuideOverlay() {
-    var box = document.querySelector('[class*="bar-box"]');
-    if (!box) return;
-    var page = box.closest('[class*="fixed-page"]') || box.parentElement || box;
-    var skip = findSkipStrict(page) || findSkipStrict(document);
-    if (skip && !skip.__deadsSkipped) { skip.__deadsSkipped = 1; try { skip.click(); } catch (e) {} }
-    if (!page.__deadsHiding) {
-      page.__deadsHiding = 1;
-      setTimeout(function () { hideEl(page); hideEl(box); log('guide overlay hidden'); }, 500);
-    }
+    // 只点"跳过"，让 App 自己卸载，绝不隐藏整层（隐藏 fixed-page 会把整页弄空白）
+    var skip = findSkipStrict(document);
+    if (!skip || skip.__deadsSkipped) return;
+    var r = skip.getBoundingClientRect();
+    if (r.width < 8 || r.height < 8) return;
+    skip.__deadsSkipped = 1;
+    try {
+      skip.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      skip.click();
+      skip.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    } catch (e) {}
+    log('clicked skip');
   }
 
   function n04Main() {
@@ -518,10 +520,8 @@
     stub();
     stripAds(document);
     n04Main();
-    killSplash();
     dismissAnnouncementAd();
     killEmptyBackdrops();
-    skipVideoAd();
 
     var mo = new MutationObserver(function (muts) {
       for (var i = 0; i < muts.length; i++) {
@@ -545,12 +545,9 @@
     var ticks = 0;
     var t = setInterval(function () {
       ticks++;
-      killSplash();
       dismissAnnouncementAd();
       killEmptyBackdrops();
       n04Main();
-      killPreroll();
-      skipVideoAd();
       if (ticks > 40) clearInterval(t);
     }, 500);
   }
