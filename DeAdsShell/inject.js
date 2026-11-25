@@ -445,10 +445,79 @@
     }
   }
 
+
+  /* ============ 11. 网飞猫专用（2026-11 实测 DOM）============
+     实测面板读数：
+       播放页  DIV | z=101 | custom-player-ad-container is-preroll     ← 贴片广告层
+       启动页  DIV | 0,0 430x932 | fixed-page / mask / bar-box(z=99)   ← 带"跳过"的引导/开屏层
+     */
+  function __deadsN04Css() {
+    if (document.querySelector('style[data-deads-n04]')) return;
+    var s = document.createElement('style');
+    s.setAttribute('data-deads-n04', '1');
+    s.textContent = [
+      '[class*="custom-player-ad-container"]{display:none!important;visibility:hidden!important;pointer-events:none!important}',
+      '[class*="is-preroll"]{display:none!important;visibility:hidden!important}',
+      '[class*="fixed-page"]:has([class*="bar-box"]){display:none!important;visibility:hidden!important;pointer-events:none!important}'
+    ].join('');
+    (document.head || document.documentElement).appendChild(s);
+  }
+
+  // 只认"跳过"，不要别的词，避免误伤
+  function findSkipStrict(root) {
+    var all = (root || document).querySelectorAll('div,span,a,button,i,img,svg,p');
+    for (var i = 0; i < all.length; i++) {
+      var t = (all[i].textContent || '').trim();
+      if (!t || t.length > 8) continue;
+      if (/^(跳过|跳过广告|跳过\s*\d*|skip|skip\s*ad|关闭广告|×|✕|╳)$/i.test(t)) return all[i];
+    }
+    return null;
+  }
+
+  // 贴片广告：静音 + 拖到片尾 + 隐藏整层
+  function killPlayerAd() {
+    var nodes = document.querySelectorAll('[class*="custom-player-ad-container"],[class*="is-preroll"]');
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (el.__deadsAdKilled) continue;
+      el.__deadsAdKilled = 1;
+      var vs = el.querySelectorAll('video');
+      for (var v = 0; v < vs.length; v++) {
+        try {
+          vs[v].muted = true;
+          vs[v].pause();
+          if (vs[v].duration && isFinite(vs[v].duration)) { vs[v].currentTime = vs[v].duration; }
+        } catch (e) {}
+      }
+      hideEl(el);
+      log('player preroll killed');
+    }
+  }
+
+  // 开屏/引导层：有"跳过"就点它（App 自己的逻辑），再整层隐藏
+  function killGuideOverlay() {
+    var box = document.querySelector('[class*="bar-box"]');
+    if (!box) return;
+    var page = box.closest('[class*="fixed-page"]') || box.parentElement || box;
+    var skip = findSkipStrict(page) || findSkipStrict(document);
+    if (skip && !skip.__deadsSkipped) { skip.__deadsSkipped = 1; try { skip.click(); } catch (e) {} }
+    if (!page.__deadsHiding) {
+      page.__deadsHiding = 1;
+      setTimeout(function () { hideEl(page); hideEl(box); log('guide overlay hidden'); }, 500);
+    }
+  }
+
+  function n04Main() {
+    __deadsN04Css();
+    killPlayerAd();
+    killGuideOverlay();
+  }
+
   /* ---------- 启动 ---------- */
   function boot() {
     stub();
     stripAds(document);
+    n04Main();
     killSplash();
     dismissAnnouncementAd();
     killEmptyBackdrops();
@@ -463,6 +532,7 @@
             if (n.nodeType === 1) {
               if (isAdNode(n)) { try { hideEl(n); } catch (e) {} continue; }
               stripAds(n);
+              n04Main();
               dismissAnnouncementAd();
             }
           }
@@ -478,6 +548,7 @@
       killSplash();
       dismissAnnouncementAd();
       killEmptyBackdrops();
+      n04Main();
       killPreroll();
       skipVideoAd();
       if (ticks > 40) clearInterval(t);
