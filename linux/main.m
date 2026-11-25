@@ -4,7 +4,7 @@
 #import <Foundation/Foundation.h>
 
 // 内置默认地址；实际地址从远端 deads-config.json 拉，拉不到就用它
-static NSString *const kDefaultTarget = @"https://5agh2k05web.yqsudp.com/?c=hgti&x=hkyoNWHktEG8B9dRVNm7i7mNt%2Fb1XLaxCutlSK7qpQ8%3D&id=1fde65665c160ef861052374818fe052&h=904cdc4ef55a0390f79ee05cddbb1285a426bab1f16de0e015f395aa852f797c&conf_version=4";
+static NSString *const kDefaultTarget = @"https://a.napp04.com:51111/?_c=c200000&package=napp04.com";
 static NSString *const kConfigURL = @"https://raw.githubusercontent.com/yuyuyutyu/deads-shell/main/deads-config.json";
 static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1";
 

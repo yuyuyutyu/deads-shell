@@ -53,6 +53,41 @@
   }
   __deadsHideCss();
 
+  /* ============ 0b. 远端规则：不重装就能更新广告选择器 ============
+     原生壳（v9 起）会注入 window.__deadsConfig；老壳没有，就在 JS 里自己拉。
+     两个源：jsDelivr 镜像 → GitHub raw，任一个通即可。拉不到就用内置默认值。 */
+  function __deadsFetchConfig() {
+    if (window.__deadsConfig && window.__deadsConfig.hideSelectors) return;
+    var urls = [
+      'https://cdn.jsdelivr.net/gh/yuyuyutyu/deads-shell@main/deads-config.json',
+      'https://raw.githubusercontent.com/yuyuyutyu/deads-shell/main/deads-config.json'
+    ];
+    var i = 0;
+    (function next() {
+      if (i >= urls.length) return;
+      var url = urls[i++];
+      var done = false;
+      var ac = null;
+      try { ac = new AbortController(); } catch (e) {}
+      var timer = setTimeout(function () { done = true; try { ac && ac.abort(); } catch (e) {} next(); }, 2500);
+      fetch(url, { cache: 'no-store', signal: ac ? ac.signal : undefined })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (cfg) {
+          clearTimeout(timer);
+          if (done || !cfg) return;
+          done = true;
+          window.__deadsConfig = cfg;
+          var old = document.querySelector('style[data-deads-css]');
+          if (old && old.parentNode) old.parentNode.removeChild(old);
+          __deadsHideCss();
+          log('remote config loaded');
+        })
+        .catch(function () { clearTimeout(timer); if (!done) next(); });
+    })();
+  }
+  __deadsFetchConfig();
+
+
   if (window.__deadsInstalled) return;
   var DEADS_V2 = true;
   window.__deadsInstalled = true;
@@ -138,7 +173,11 @@
         var el = node.children[i];
         if (bigOverlay(el)) {
           var body = el.textContent || '';
-          if (COUNTDOWN.test(body) || /广告|advertisement/i.test(body)) {
+          var flat = body.replace(/\s+/g, '');
+          // 纯数字倒计时（5 / 5s / 5秒）也要认，很多开屏只画一个数字
+          var isCountdown = COUNTDOWN.test(body) || /^\d{1,2}(s|秒)?$/.test(flat) || /(^|[^\d])\d{1,2}(s|秒)$/.test(flat);
+          var isAdWord = /广告|advertisement/i.test(body);
+          if (isCountdown || isAdWord) {
             var btn = findSkip(el);
             if (btn) {
               try { btn.click(); btn.dispatchEvent(new MouseEvent('click', { bubbles: true })); } catch (e) {}
@@ -153,7 +192,7 @@
                     log('splash removed');
                   }
                 } catch (e) {}
-              }, 3000);
+              }, 1500);
             })(el);
           }
         }
@@ -380,6 +419,32 @@
     }
   }
 
+
+  /* ============ 10. 视频贴片（播放前倒计时广告）============
+     判据：视频时长 ≤ 45s（正片不会这么短）、还没播完、并且屏幕上出现倒计时/跳过字样。
+     动作：把 currentTime 拖到片尾，让贴片瞬间结束；不删视频节点，不破坏播放器状态。 */
+  function killPreroll() {
+    var vs = document.querySelectorAll('video');
+    if (!vs.length) return;
+    var overlay = null;
+    var all = document.querySelectorAll('div,span,p');
+    for (var i = 0; i < all.length; i++) {
+      var t = (all[i].textContent || '').replace(/\s+/g, '');
+      if (!t || t.length > 14) continue;
+      if (/^\d{1,2}(s|秒)?$/.test(t) || /跳过|广告/.test(t)) { overlay = all[i]; break; }
+    }
+    if (!overlay) return;
+    for (var v = 0; v < vs.length; v++) {
+      var el = vs[v];
+      try {
+        if (!el.duration || !isFinite(el.duration) || el.duration > 45 || el.duration < 1) continue;
+        if (el.currentTime >= el.duration - 1) continue;
+        el.currentTime = Math.max(0, el.duration - 0.2);
+        log('preroll skipped, dur=' + el.duration.toFixed(1));
+      } catch (e) {}
+    }
+  }
+
   /* ---------- 启动 ---------- */
   function boot() {
     stub();
@@ -413,6 +478,7 @@
       killSplash();
       dismissAnnouncementAd();
       killEmptyBackdrops();
+      killPreroll();
       skipVideoAd();
       if (ticks > 40) clearInterval(t);
     }, 500);

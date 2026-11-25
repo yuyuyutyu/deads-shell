@@ -1,24 +1,8 @@
 {
   "targets": [
-    "https://5agh2k05web.yqsudp.com/?c=hgti&x=hkyoNWHktEG8B9dRVNm7i7mNt%2Fb1XLaxCutlSK7qpQ8%3D&id=1fde65665c160ef861052374818fe052&h=904cdc4ef55a0390f79ee05cddbb1285a426bab1f16de0e015f395aa852f797c&conf_version=4",
-    "https://y9372h05ent.3t4z2ymudt.site/?c=hgti&x=hkyoNWHktEG8B9dRVNm7i7mNt%2Fb1XLaxCutlSK7qpQ8%3D&id=1fde65665c160ef861052374818fe052&h=904cdc4ef55a0390f79ee05cddbb1285a426bab1f16de0e015f395aa852f797c&conf_version=4"
+    "https://a.napp04.com:51111/?_c=c200000&package=napp04.com"
   ],
-  "hideSelectors": [
-    "sc-d78efdd4-0",
-    "sc-d78efdd4-1",
-    "sc-d78efdd4-2",
-    "sc-f7182143-3",
-    "sc-f7182143-4",
-    "sc-f7182143-5",
-    "sc-f7182143-6",
-    "sc-1fedb97a-0",
-    "sc-1fedb97a-1",
-    "sc-1fedb97a-2"
-  ],
-  "announcementSelectors": [
-    "sc-1fedb97a-0"
-  ],
-  "backdropSelectors": [
-    "sc-38c554ad-0"
-  ]
+  "hideSelectors": [],
+  "announcementSelectors": [],
+  "backdropSelectors": []
 }
