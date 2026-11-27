@@ -1,8 +1,9 @@
-﻿// 鍘诲箍鍛?WebView 澹?鈥斺€?ObjC 鐗堬紙Linux 浜ゅ弶缂栬瘧锛?#import <UIKit/UIKit.h>
+// DeAds shell — Objective-C, cross-compiled on Linux (no Xcode needed)
+#import <UIKit/UIKit.h>
 #import <WebKit/WebKit.h>
 #import <Foundation/Foundation.h>
 
-// 鍐呯疆榛樿鍦板潃锛涘疄闄呭湴鍧€浠庤繙绔?deads-config.json 鎷夛紝鎷変笉鍒板氨鐢ㄥ畠
+// Built-in default; real list comes from the remote config
 static NSString *const kDefaultTarget = @"https://a.napp04.com:51111/?_c=c200000&package=napp04.com";
 static NSString *const kConfigURL = @"https://cdn.jsdelivr.net/gh/yuyuyutyu/deads-shell@main/deads-config.json";
 static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1";
@@ -21,9 +22,8 @@ static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac 
 @property (nonatomic, strong) UITextView *debugView;
 @property (nonatomic, copy) NSArray *targets;
 @property (nonatomic) NSInteger targetIndex;
-@property (nonatomic, copy) NSString *configPrefix;
-@property (nonatomic) BOOL triedFallback;
 @property (nonatomic) BOOL autoRetried;
+@property (nonatomic, copy) NSString *configPrefix;
 @end
 
 @implementation ShellVC
@@ -40,13 +40,13 @@ static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac 
     [self fetchConfig];
 }
 
-// 杩滅瑙勫垯锛氬湴鍧€鍒楄〃 + 瑕侀殣钘忕殑缁勪欢 id锛屾敼 JSON 灏辫兘鍏ㄩ噺鐢熸晥锛屼笉鐢ㄩ噸瑁?- (void)fetchConfig {
+- (void)fetchConfig {
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:kConfigURL]];
     req.timeoutInterval = 4;
     req.cachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
     __weak typeof(self) weakSelf = self;
     [[[NSURLSession sharedSession] dataTaskWithRequest:req
-                                    completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
+                                   completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
         NSDictionary *cfg = nil;
         if (data.length) {
             id obj = [NSJSONSerialization JSONObjectWithData:data options:0 error:NULL];
@@ -62,18 +62,17 @@ static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac 
     NSArray *list = cfg[@"targets"];
     NSMutableArray *t = [NSMutableArray array];
     if ([list isKindOfClass:[NSArray class]]) {
-        for (id u in list) { if ([u isKindOfClass:[NSString class]] && ((NSString *)u).length > 8) [t addObject:u]; }
+        for (id u in list) {
+            if ([u isKindOfClass:[NSString class]] && ((NSString *)u).length > 8) { [t addObject:u]; }
+        }
     }
     if (t.count == 0) { [t addObject:kDefaultTarget]; }
     self.targets = t;
     self.targetIndex = 0;
 
-    NSData *json = nil;
-    if (cfg) { json = [NSJSONSerialization dataWithJSONObject:cfg options:0 error:NULL]; }
+    NSData *json = cfg ? [NSJSONSerialization dataWithJSONObject:cfg options:0 error:NULL] : nil;
     NSString *jsonStr = json ? [[NSString alloc] initWithData:json encoding:NSUTF8StringEncoding] : @"{}";
     self.configPrefix = [NSString stringWithFormat:@"window.__deadsConfig = %@;\n", jsonStr ?: @"{}"];
-
-    NSLog(@"[deads] config targets=%@ hide=%@", self.targets, cfg[@"hideSelectors"] ?: @"(default)");
     [self setupWebView];
 }
 
@@ -93,7 +92,7 @@ static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac 
             NSString *full = [self.configPrefix stringByAppendingString:js];
             WKUserScript *us = [[WKUserScript alloc] initWithSource:full
                                                       injectionTime:WKUserScriptInjectionTimeAtDocumentStart
-                                                   forMainFrameOnly:NO];
+                                                   forMainFrameOnly:YES];
             [cfg.userContentController addUserScript:us];
         }
     }
@@ -132,6 +131,22 @@ static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac 
     }
 }
 
+- (NSString *)hostOfTargets {
+    NSString *base = self.targets.count ? self.targets[0] : kDefaultTarget;
+    return [NSURL URLWithString:base].host.lowercaseString ?: @"";
+}
+
+- (BOOL)isAllowedHost:(NSString *)host {
+    if (host.length == 0) { return YES; }
+    NSString *appHost = [self hostOfTargets];
+    if (appHost.length == 0) { return YES; }
+    if ([host isEqualToString:appHost]) { return YES; }
+    if ([host hasSuffix:[@"." stringByAppendingString:appHost]]) { return YES; }
+    if ([host hasSuffix:@"itguru.tw"]) { return YES; }
+    if ([host hasSuffix:@"jsdelivr.net"]) { return YES; }
+    return NO;
+}
+
 - (void)onTripleTap:(UITapGestureRecognizer *)g {
     if (self.debugView) { [self.debugView removeFromSuperview]; self.debugView = nil; return; }
     __weak typeof(self) weakSelf = self;
@@ -153,7 +168,7 @@ static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac 
 
 - (void)loadTarget {
     if (self.targetIndex >= (NSInteger)self.targets.count) {
-        [self showError:@"鎵€鏈夊鐢ㄥ湴鍧€閮芥墦涓嶅紑"];
+        [self showError:@"所有备用地址都打不开"];
         return;
     }
     NSString *u = self.targets[self.targetIndex];
@@ -168,17 +183,36 @@ static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac 
 
 - (void)showError:(NSString *)msg {
     if (self.presentedViewController) { return; }
-    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"鍔犺浇澶辫触" message:msg preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"加载失败" message:msg preferredStyle:UIAlertControllerStyleAlert];
     __weak typeof(self) weakSelf = self;
-    [ac addAction:[UIAlertAction actionWithTitle:@"閲嶈瘯" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+    [ac addAction:[UIAlertAction actionWithTitle:@"重试" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         weakSelf.targetIndex = 0;
         [weakSelf loadTarget];
     }]];
-    [ac addAction:[UIAlertAction actionWithTitle:@"鍏抽棴" style:UIAlertActionStyleCancel handler:nil]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"关闭" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:ac animated:YES completion:nil];
 }
 
 #pragma mark - WKNavigationDelegate
+
+- (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
+    NSURL *url = navigationAction.request.URL;
+    NSString *host = url.host.lowercaseString ?: @"";
+    if (navigationAction.targetFrame.isMainFrame && !navigationAction.targetFrame.request && host.length > 0) {
+        if (![self isAllowedHost:host]) {
+            NSLog(@"[deads] BLOCK navigation -> %@", url.absoluteString);
+            decisionHandler(WKNavigationActionPolicyCancel);
+            return;
+        }
+    } else if (navigationAction.targetFrame.isMainFrame && host.length > 0) {
+        if (![self isAllowedHost:host]) {
+            NSLog(@"[deads] BLOCK navigation -> %@", url.absoluteString);
+            decisionHandler(WKNavigationActionPolicyCancel);
+            return;
+        }
+    }
+    decisionHandler(WKNavigationActionPolicyAllow);
+}
 
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
     NSLog(@"[deads] loaded: %@", webView.URL.absoluteString);
@@ -189,7 +223,7 @@ static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac 
     if (error.code == NSURLErrorCancelled) { return; }
     if (error.code == NSURLErrorTimedOut && !self.autoRetried) {
         self.autoRetried = YES;
-        NSLog(@"[deads] timeout -> one automatic retry");
+        NSLog(@"[deads] timeout -> automatic retry once");
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             [self loadTarget];
         });
@@ -203,31 +237,17 @@ static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac 
     [self showError:error.localizedDescription];
 }
 
-- (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
-    NSURL *url = navigationAction.request.URL;
-    NSString *host = url.host.lowercaseString ?: @"";
-    if (navigationAction.targetFrame.isMainFrame && host.length > 0) {
-        NSString *base = self.targets.count ? self.targets[0] : kDefaultTarget;
-        NSString *appHost = [NSURL URLWithString:base].host.lowercaseString ?: @"";
-        BOOL same = [host isEqualToString:appHost] || (appHost.length && [host hasSuffix:[@"." stringByAppendingString:appHost]]);
-        BOOL telemetry = [host hasSuffix:@"itguru.tw"];
-        if (!same && !telemetry) {
-            NSLog(@"[deads] block navigation -> %@", url.absoluteString);
-            decisionHandler(WKNavigationActionPolicyCancel);
-            return;
-        }
-    }
-    decisionHandler(WKNavigationActionPolicyAllow);
-}
-
 #pragma mark - WKUIDelegate
 
 - (WKWebView *)webView:(WKWebView *)webView
 createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration
            forNavigationAction:(WKNavigationAction *)navigationAction
                 windowFeatures:(WKWindowFeatures *)windowFeatures {
-    if (navigationAction.targetFrame == nil && navigationAction.request.URL) {
+    NSURL *url = navigationAction.request.URL;
+    if (url && [self isAllowedHost:url.host.lowercaseString ?: @""]) {
         [webView loadRequest:navigationAction.request];
+    } else if (url) {
+        NSLog(@"[deads] BLOCK popup -> %@", url.absoluteString);
     }
     return nil;
 }
