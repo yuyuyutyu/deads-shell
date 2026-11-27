@@ -66,7 +66,12 @@ jobs:
           set -e
           APP="$PWD/build/Payload/DeAds.app"
           cp linux/Info.plist "$APP/Info.plist"
-          cp DeAdsShell/inject.js "$APP/inject.js"
+          if [ -f DeAdsShell/inject-myzys.js ]; then
+            cp DeAdsShell/inject-myzys.js "$APP/inject.js"
+            echo "using inject-myzys.js"
+          else
+            cp DeAdsShell/inject.js "$APP/inject.js"
+          fi
           cp DeAdsShell/adblock.json "$APP/adblock.json"
           cp linux/icons/*.png "$APP/"
           printf 'APPL????' > "$APP/PkgInfo"

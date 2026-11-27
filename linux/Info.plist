@@ -3,11 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
-	<key>CFBundleDisplayName</key><string>网飞猫</string>
+	<key>CFBundleDisplayName</key><string>梦影资源社</string>
 	<key>CFBundleExecutable</key><string>DeAds</string>
-	<key>CFBundleIdentifier</key><string>com.deads.ncat</string>
+	<key>CFBundleIdentifier</key><string>com.deads.myzys</string>
 	<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
-	<key>CFBundleName</key><string>Netcat</string>
+	<key>CFBundleName</key><string>Myzys</string>
 	<key>CFBundlePackageType</key><string>APPL</string>
 	<key>CFBundleShortVersionString</key><string>1.0.0</string>
 	<key>CFBundleSignature</key><string>????</string>

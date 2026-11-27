@@ -465,7 +465,7 @@
       var bdSel = __deadsBdSel();
       var bdEl = document.querySelector(bdSel);
       var cardEl = document.querySelector(__deadsAnnSel());
-      out.push('', '--- diag (v30) ---',
+      out.push('', '--- diag (v34) ---',
         'ua=' + (navigator.userAgent || '').slice(0, 60),
         'cfg=' + JSON.stringify(window.__deadsConfig || {}).slice(0, 150),
         'bdSel=' + bdSel + '  bdFound=' + !!bdEl,
@@ -752,11 +752,57 @@
       var el = nodes[i];
       if (el.__deadsAdKilled) continue;
       el.__deadsAdKilled = 1;
-      // v28：不再点跳过、不再拖进度（上次的 player error 可能就是这两步引起的）
-      // 只把它透明化，剩下的交给"抢播护法"
+      // 把它透明化 + 静音
       var vs = el.querySelectorAll('video');
       for (var v = 0; v < vs.length; v++) {
         try { vs[v].muted = true; } catch (e) {}
+      }
+      // 关键：把"贴片层里的广告 video"直接播到结尾，触发插件注册的 ENDED
+      // 插件源码：adVideoPlayer.on(ENDED, () => { this.removeAdContainer(); next(); })
+      // 这样不用等它 3 秒/7 秒的可跳过计时。
+      var seekAd = function (node) {
+        try {
+          var fast = node.querySelectorAll('video');
+          for (var f = 0; f < fast.length; f++) {
+            try { fast[f].muted = true; fast[f].playbackRate = 16; if (fast[f].paused) fast[f].play(); } catch (e) {}
+          }
+        } catch (e) {}
+        try {
+          var vv = node.querySelectorAll('video');
+          for (var q = 0; q < vv.length; q++) {
+            var v = vv[q];
+            if (!v.duration || !isFinite(v.duration) || v.duration < 0.5) continue;
+            if (v.currentTime >= v.duration - 0.3) continue;
+            v.muted = true;
+            try { v.playbackRate = 16; } catch (e) {}
+            try { v.play(); } catch (e) {}
+            v.currentTime = v.duration - 0.05;
+            log('ad video seeked to end');
+          }
+        } catch (e) {}
+      };
+      seekAd(el);
+      setTimeout(function () { seekAd(el); }, 350);
+      setTimeout(function () { seekAd(el); }, 900);
+
+      // 跳过键轮询：它是"3s后可跳过"的禁用态时点了没用，
+      // 一旦文案变成"点击跳过"就说明可用 —— 这时候点一下队列立刻前进。
+      // 之前只点一次，遇到"连播 3 条贴片"就得干等 3 次计时，这就是最后那点等待的来源。
+      var skipBtn = el.querySelector('.ad-skip-btn, [class*="ad-skip-btn"]');
+      if (skipBtn && !skipBtn.__deadsLoop) {
+        skipBtn.__deadsLoop = 1;
+        var guard = 0;
+        var t = setInterval(function () {
+          guard++;
+          try {
+            if (!skipBtn.isConnected || guard > 60) { clearInterval(t); return; }
+            var txt = (skipBtn.textContent || '').trim();
+            if (/后可跳过|后可关闭/.test(txt)) return;
+            hardClick(skipBtn);
+            log('ad-skip clicked: ' + txt.slice(0, 12));
+            clearInterval(t);
+          } catch (e) { clearInterval(t); }
+        }, 250);
       }
       log('player preroll killed');
     }
@@ -767,6 +813,10 @@
     // 只点"跳过"，让 App 自己卸载，绝不隐藏整层（隐藏 fixed-page 会把整页弄空白）
     var skip = findSkipAny(document);
     if (!skip || skip.__deadsSkipped) return;
+    try {
+      var st = (skip.textContent || '').trim();
+      if (/后可跳过|后可关闭/.test(st)) return;   // 禁用态，点了也没用
+    } catch (e) {}
     skip.__deadsSkipped = 1;
     hardClick(skip);
     log('clicked skip: ' + ((skip.textContent || '').trim() || skip.className).toString().slice(0, 24));

@@ -4,8 +4,8 @@
 #import <Foundation/Foundation.h>
 
 // Built-in default; real list comes from the remote config
-static NSString *const kDefaultTarget = @"https://a.napp04.com:51111/?_c=c200000&package=napp04.com";
-static NSString *const kConfigURL = @"https://cdn.jsdelivr.net/gh/yuyuyutyu/deads-shell@main/deads-config.json";
+static NSString *const kDefaultTarget = @"https://myzys.cc/";
+static NSString *const kConfigURL = @"https://cdn.jsdelivr.net/gh/yuyuyutyu/deads-shell@main/deads-myzys.json";
 static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1";
 
 @interface DeadLog : NSObject <WKScriptMessageHandler>
