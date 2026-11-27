@@ -13,10 +13,14 @@ jobs:
 
       - name: Toolchain
         run: |
-          set -e
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq clang lld zip unzip curl python3 > /dev/null
+          set -x
+          export DEBIAN_FRONTEND=noninteractive
+          APT="sudo apt-get -y -o Acquire::Retries=5 -o Acquire::http::Timeout=30"
+          $APT update -qq || $APT update -qq || true
+          $APT install -qq clang lld zip unzip curl python3 || \
+            (sleep 15; $APT update -qq; $APT install -qq clang lld zip unzip curl python3)
           clang --version | head -n 1
+          if ! command -v clang >/dev/null 2>&1; then echo "clang missing"; exit 1; fi
           if ! command -v ld64.lld >/dev/null 2>&1; then
             sudo ln -sf "$(command -v lld)" /usr/bin/ld64.lld || true
           fi
