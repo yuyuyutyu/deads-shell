@@ -97,9 +97,12 @@
   var SKIP_TEXT = /^(跳过|跳过广告|跳过预览|跳过\s*\d*|进入|立即进入|skip|skip\s*ad|跳过此广告|关闭|关闭广告|close|×|✕|╳|x)$/i;
   var COUNTDOWN = /(\d{1,2}\s*[sS秒])|s\s*后(跳|关|进)/;
 
+  var __deadsRing = [];
   function log() {
+    var line = [].slice.call(arguments).join(' ');
+    try { __deadsRing.push(line); if (__deadsRing.length > 40) __deadsRing.shift(); } catch (e) {}
     try {
-      window.webkit.messageHandlers.deadsLog.postMessage([].slice.call(arguments).join(' '));
+      window.webkit.messageHandlers.deadsLog.postMessage(line);
     } catch (e) {}
   }
 
@@ -109,7 +112,7 @@
      React 的 portal 被外部删掉后，下一次 reconcile 会抛 NotFoundError，
      整棵树崩掉 -> 就是你说的"一滑动全部灰屏"。 */
   function hideEl(el) {
-    if (!el || el.nodeType !== 1 || el.__deadsHidden) return;
+    if (!el || el.nodeType !== 1) return;
     try {
       el.__deadsHidden = 1;
       el.style.setProperty('display', 'none', 'important');
@@ -277,7 +280,7 @@
     }
 
     // 额外：把全屏浮层的子节点类名也列出来，方便定位"跳过"按钮
-    var deep = [];
+    var deep = [], deepOverlays = 0;
     for (var k = 0; k < nodes.length; k++) {
       var n2 = nodes[k];
       var s2;
@@ -291,12 +294,12 @@
       for (var q = 0; q < kids.length && shown < 14; q++) {
         var kk = kids[q];
         var rk = kk.getBoundingClientRect();
-        if (rk.width < 20 || rk.height < 10) continue;
+        if (rk.width < 2 || rk.height < 2) continue;
         var tk = (kk.textContent || '').trim().slice(0, 10);
         deep.push('   <' + kk.tagName + '> ' + (kk.className || '') + ' | ' + Math.round(rk.width) + 'x' + Math.round(rk.height) + ' | "' + tk + '"');
         shown++;
       }
-      break;
+      if (++deepOverlays >= 3) break;
     }
     if (deep.length) out.push('', '--- fullscreen overlay children ---', deep.join('\n'));
 
@@ -307,6 +310,20 @@
       if (rs.length) out.push('', '--- scripts loaded ---', rs.join('\n'));
     } catch (e) {}
 
+    try {
+      var bdSel = __deadsBdSel();
+      var bdEl = document.querySelector(bdSel);
+      var cardEl = document.querySelector(__deadsAnnSel());
+      out.push('', '--- diag ---',
+        'cfg=' + JSON.stringify(window.__deadsConfig || {}).slice(0, 150),
+        'bdSel=' + bdSel + '  bdFound=' + !!bdEl,
+        'bdInlineStyle=' + (bdEl ? JSON.stringify(bdEl.getAttribute('style')) : 'n/a'),
+        'bdRect=' + (bdEl ? Math.round(bdEl.getBoundingClientRect().width) + 'x' + Math.round(bdEl.getBoundingClientRect().height) : 'n/a'),
+        'cardFound=' + !!cardEl + ' cardRect=' + (cardEl ? Math.round(cardEl.getBoundingClientRect().width) + 'x' + Math.round(cardEl.getBoundingClientRect().height) : 'n/a'),
+        'cssTag=' + !!document.querySelector('style[data-deads-css]') + ' n04Tag=' + !!document.querySelector('style[data-deads-n04]'),
+        'compress=' + (window.__deadsCompress || 0),
+        'logs=' + __deadsRing.slice(-12).join(' / '));
+    } catch (e) {}
     var head = 'viewport ' + vw + 'x' + vh + '  url=' + location.href.slice(0, 80) + '\n--- fixed/absolute >=5% ---\n';
     return head + (out.length ? out.join('\n') : 'none');
   };
@@ -433,9 +450,9 @@
     var nodes = document.body.querySelectorAll('div,section,aside');
     for (var i = 0; i < nodes.length; i++) {
       var el = nodes[i];
-      if (el.__deadsHidden || el.__deadsBdChecked) continue;
       var s;
       try { s = getComputedStyle(el); } catch (e) { continue; }
+      if (s.display === 'none' || s.visibility === 'hidden') continue;
       if (s.position !== 'fixed' && s.position !== 'absolute') continue;
       var r = el.getBoundingClientRect();
       if (r.width < vw * 0.9 || r.height < vh * 0.85) continue;
@@ -445,8 +462,25 @@
       if (!(alpha < 0.95)) continue;
       var z = parseInt(s.zIndex, 10); if (isNaN(z)) z = 0;
       if (z < 10) continue;
-      if (el.querySelector('button,input,textarea,select,a[href],img,video,canvas,svg')) { el.__deadsBdChecked = 1; continue; }
+      // 关键：只看"可见"的交互元素。公告卡被我们用 CSS 藏掉后，
+      // 遮罩里虽然还有 button/img 节点，但 rect 全是 0，必须算作"空遮罩"。
+      var kids = el.querySelectorAll('button,input,textarea,select,a[href],img,video,canvas,svg');
+      var visibleKid = false;
+      for (var q = 0; q < kids.length; q++) {
+        var rk = kids[q].getBoundingClientRect();
+        if (rk.width > 4 && rk.height > 4) { visibleKid = true; break; }
+      }
+      if (visibleKid) continue;
       hideEl(el);
+      // 顺手解开弹层库加的滚动锁
+      try {
+        if (document.body && getComputedStyle(document.body).overflow === 'hidden') {
+          document.body.style.setProperty('overflow', 'auto', 'important');
+        }
+        if (document.documentElement && getComputedStyle(document.documentElement).overflow === 'hidden') {
+          document.documentElement.style.setProperty('overflow', 'auto', 'important');
+        }
+      } catch (e) {}
       log('empty backdrop hidden');
     }
   }
@@ -489,7 +523,8 @@
     s.setAttribute('data-deads-n04', '1');
     s.textContent = [
       '[class*="custom-player-ad-container"]{opacity:0!important;pointer-events:none!important;}',
-      '[class*="is-preroll"]{opacity:0!important;pointer-events:none!important;}'
+      '[class*="is-preroll"]{opacity:0!important;pointer-events:none!important;}',
+      '[class*="sc-38c554ad-0"]{display:none!important;visibility:hidden!important;pointer-events:none!important;}'
     ].join('');
     (document.head || document.documentElement).appendChild(s);
   }
@@ -708,6 +743,7 @@
       if (typeof delay === 'number' && delay >= 500 && delay <= 3000) {
         var adLayer = document.querySelector ? document.querySelector('[class*="custom-player-ad-container"]') : null;
         if (adLayer) {
+          window.__deadsCompress = (window.__deadsCompress || 0) + 1;
           log('interval compress ' + delay + ' -> 15');
           delay = 15;
         }
@@ -718,6 +754,69 @@
     return __rawSetInterval.apply(window, [fn, delay].concat(extra));
   };
 
+
+  /* ============ 15. 公告遮罩定点清除 ============
+     实测：`sc-38c554ad-0` 这个遮罩（z=1000, rgba(0,0,0,.5)）在公告卡被 CSS 藏掉后仍然挂着，
+     面板显示它 kids=3 但没有任何 ≥20x10 的可见子节点 —— 就是空壳。
+     通用启发式偶尔会被"16x16 的小关闭键"骗过，所以这里定点处理：
+       1) 广告卡还露着 → 不动；
+       2) 遮罩里存在"看得见的文字内容"（≥60x12 且有 4 字以上）→ 认为是系统公告，不动；
+       3) 其余情况 → 直接隐藏，并解除滚动锁。 */
+  function killAnnouncementBackdrop() {
+    var bd;
+    try { bd = document.querySelector(__deadsBdSel()); } catch (e) { return; }
+    if (!bd) return;
+    try { var bds = getComputedStyle(bd); if (bds.display === 'none') return; } catch (e) {}
+
+    var card = null;
+    try { card = document.querySelector(__deadsAnnSel()); } catch (e) {}
+    if (card) {
+      var cr = card.getBoundingClientRect();
+      if (cr.height > 4 && cr.width > 4) return;   // 广告卡还在，等 CSS/别的手段
+    }
+
+    var all = bd.querySelectorAll('div,p,span,section,button,a,h1,h2,h3');
+    for (var i = 0; i < all.length; i++) {
+      var t = (all[i].textContent || '').trim();
+      if (t.length < 4) continue;
+      var r = all[i].getBoundingClientRect();
+      if (r.width > 60 && r.height > 12) return;   // 有可见正文 → 系统公告，放过
+    }
+
+    hideEl(bd);
+    try {
+      if (document.body && getComputedStyle(document.body).overflow === 'hidden') {
+        document.body.style.setProperty('overflow', 'auto', 'important');
+      }
+      if (document.documentElement && getComputedStyle(document.documentElement).overflow === 'hidden') {
+        document.documentElement.style.setProperty('overflow', 'auto', 'important');
+      }
+    } catch (e) {}
+    log('announcement backdrop dropped');
+  }
+
+
+  /* ============ 16. 抢回播放权 ============
+     插件在 adContainer 存在期间，每次 timeupdate 都会 player.pause()（源码里的 handleTimeUpdate）。
+     它的计时器要是压不动（换了实现就可能），页面就会"点了就暂停，等 7 秒才好"。
+     这里的策略不问原因，只要贴片层还在 DOM 里，就每 150ms 把主视频 play() 回去。 */
+  var __deadsFight = null;
+  function startPlayFight() {
+    if (__deadsFight) return;
+    __deadsFight = setInterval(function () {
+      var ad = document.querySelector('[class*="is-preroll"],[class*="custom-player-ad-container"]');
+      if (!ad) { clearInterval(__deadsFight); __deadsFight = null; return; }
+      var vs = document.querySelectorAll('video');
+      for (var i = 0; i < vs.length; i++) {
+        var v = vs[i];
+        if (ad.contains(v)) continue;
+        var r = v.getBoundingClientRect();
+        if (r.width < 100 || r.height < 60) continue;
+        if (v.paused) { try { v.play(); } catch (e) {} }
+      }
+    }, 150);
+  }
+
   /* ---------- 启动 ---------- */
   function boot() {
     stub();
@@ -726,6 +825,7 @@
     launchMain();
     dismissAnnouncementAd();
     killEmptyBackdrops();
+    killAnnouncementBackdrop();
 
     var mo = new MutationObserver(function (muts) {
       for (var i = 0; i < muts.length; i++) {
@@ -738,6 +838,7 @@
               stripAds(n);
               n04Main();
               dismissAnnouncementAd();
+              killAnnouncementBackdrop();
             }
           }
         }
@@ -751,9 +852,14 @@
       ticks++;
       dismissAnnouncementAd();
       killEmptyBackdrops();
+      killAnnouncementBackdrop();
       n04Main();
       launchMain();
-      if (ticks > 40) clearInterval(t);
+      if (ticks > 40) {
+        clearInterval(t);
+        var slow = setInterval(function () { dismissAnnouncementAd(); killEmptyBackdrops(); killAnnouncementBackdrop(); }, 2000);
+        setTimeout(function () { clearInterval(slow); }, 300000);
+      }
     }, 500);
   }
 

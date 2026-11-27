@@ -1,11 +1,10 @@
-// 去广告 WebView 壳 —— ObjC 版（Linux 交叉编译）
-#import <UIKit/UIKit.h>
+﻿// 鍘诲箍鍛?WebView 澹?鈥斺€?ObjC 鐗堬紙Linux 浜ゅ弶缂栬瘧锛?#import <UIKit/UIKit.h>
 #import <WebKit/WebKit.h>
 #import <Foundation/Foundation.h>
 
-// 内置默认地址；实际地址从远端 deads-config.json 拉，拉不到就用它
-static NSString *const kDefaultTarget = @"https://096r4r05web.hnamls.com/?c=hgti&x=hkyoNWHktEG8B9dRVNm7i7mNt%2Fb1XLaxCutlSK7qpQ8%3D&id=1fde65665c160ef861052374818fe052&h=904cdc4ef55a0390f79ee05cddbb1285a426bab1f16de0e015f395aa852f797c&conf_version=4";
-static NSString *const kConfigURL = @"https://cdn.jsdelivr.net/gh/yuyuyutyu/deads-shell@main/deads-kuaibo.json";
+// 鍐呯疆榛樿鍦板潃锛涘疄闄呭湴鍧€浠庤繙绔?deads-config.json 鎷夛紝鎷変笉鍒板氨鐢ㄥ畠
+static NSString *const kDefaultTarget = @"https://a.napp04.com:51111/?_c=c200000&package=napp04.com";
+static NSString *const kConfigURL = @"https://cdn.jsdelivr.net/gh/yuyuyutyu/deads-shell@main/deads-config.json";
 static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1";
 
 @interface DeadLog : NSObject <WKScriptMessageHandler>
@@ -24,6 +23,7 @@ static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac 
 @property (nonatomic) NSInteger targetIndex;
 @property (nonatomic, copy) NSString *configPrefix;
 @property (nonatomic) BOOL triedFallback;
+@property (nonatomic) BOOL autoRetried;
 @end
 
 @implementation ShellVC
@@ -40,8 +40,7 @@ static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac 
     [self fetchConfig];
 }
 
-// 远端规则：地址列表 + 要隐藏的组件 id，改 JSON 就能全量生效，不用重装
-- (void)fetchConfig {
+// 杩滅瑙勫垯锛氬湴鍧€鍒楄〃 + 瑕侀殣钘忕殑缁勪欢 id锛屾敼 JSON 灏辫兘鍏ㄩ噺鐢熸晥锛屼笉鐢ㄩ噸瑁?- (void)fetchConfig {
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:kConfigURL]];
     req.timeoutInterval = 4;
     req.cachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
@@ -154,7 +153,7 @@ static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac 
 
 - (void)loadTarget {
     if (self.targetIndex >= (NSInteger)self.targets.count) {
-        [self showError:@"所有备用地址都打不开"];
+        [self showError:@"鎵€鏈夊鐢ㄥ湴鍧€閮芥墦涓嶅紑"];
         return;
     }
     NSString *u = self.targets[self.targetIndex];
@@ -163,19 +162,19 @@ static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac 
     NSLog(@"[deads] load #%ld %@", (long)self.targetIndex, u);
     NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:url];
     [req setValue:kUA forHTTPHeaderField:@"User-Agent"];
-    req.timeoutInterval = 30;
+    req.timeoutInterval = 60;
     [self.web loadRequest:req];
 }
 
 - (void)showError:(NSString *)msg {
     if (self.presentedViewController) { return; }
-    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"加载失败" message:msg preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:@"鍔犺浇澶辫触" message:msg preferredStyle:UIAlertControllerStyleAlert];
     __weak typeof(self) weakSelf = self;
-    [ac addAction:[UIAlertAction actionWithTitle:@"重试" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
+    [ac addAction:[UIAlertAction actionWithTitle:@"閲嶈瘯" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a) {
         weakSelf.targetIndex = 0;
         [weakSelf loadTarget];
     }]];
-    [ac addAction:[UIAlertAction actionWithTitle:@"关闭" style:UIAlertActionStyleCancel handler:nil]];
+    [ac addAction:[UIAlertAction actionWithTitle:@"鍏抽棴" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:ac animated:YES completion:nil];
 }
 
@@ -188,6 +187,14 @@ static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac 
 - (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error {
     NSLog(@"[deads] load failed: %@", error);
     if (error.code == NSURLErrorCancelled) { return; }
+    if (error.code == NSURLErrorTimedOut && !self.autoRetried) {
+        self.autoRetried = YES;
+        NSLog(@"[deads] timeout -> one automatic retry");
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [self loadTarget];
+        });
+        return;
+    }
     if (self.targetIndex + 1 < (NSInteger)self.targets.count) {
         self.targetIndex++;
         [self loadTarget];
