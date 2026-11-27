@@ -275,6 +275,38 @@
       out.push((sc ? sc.join(',') : '(no sc)') + ' | ' + tag + ' | ' + Math.round(r.left) + ',' + Math.round(r.top) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' | z=' + s.zIndex + ' | ' + cls.slice(0, 60));
       if (out.length > 60) break;
     }
+
+    // 额外：把全屏浮层的子节点类名也列出来，方便定位"跳过"按钮
+    var deep = [];
+    for (var k = 0; k < nodes.length; k++) {
+      var n2 = nodes[k];
+      var s2;
+      try { s2 = getComputedStyle(n2); } catch (e) { continue; }
+      if (s2.position !== 'fixed' && s2.position !== 'absolute') continue;
+      var r2 = n2.getBoundingClientRect();
+      if (r2.width * r2.height < vw * vh * 0.9) continue;
+      var kids = n2.querySelectorAll('*');
+      var shown = 0;
+      deep.push('== overlay ' + (n2.className || '(no class)') + ' kids=' + kids.length);
+      for (var q = 0; q < kids.length && shown < 14; q++) {
+        var kk = kids[q];
+        var rk = kk.getBoundingClientRect();
+        if (rk.width < 20 || rk.height < 10) continue;
+        var tk = (kk.textContent || '').trim().slice(0, 10);
+        deep.push('   <' + kk.tagName + '> ' + (kk.className || '') + ' | ' + Math.round(rk.width) + 'x' + Math.round(rk.height) + ' | "' + tk + '"');
+        shown++;
+      }
+      break;
+    }
+    if (deep.length) out.push('', '--- fullscreen overlay children ---', deep.join('\n'));
+
+
+    try {
+      var rs = performance.getEntriesByType('resource').map(function (e) { return e.name; })
+                 .filter(function (u) { return /\.js(\?|$)/.test(u); }).slice(-25);
+      if (rs.length) out.push('', '--- scripts loaded ---', rs.join('\n'));
+    } catch (e) {}
+
     var head = 'viewport ' + vw + 'x' + vh + '  url=' + location.href.slice(0, 80) + '\n--- fixed/absolute >=5% ---\n';
     return head + (out.length ? out.join('\n') : 'none');
   };
@@ -456,10 +488,63 @@
     var s = document.createElement('style');
     s.setAttribute('data-deads-n04', '1');
     s.textContent = [
-      '[class*="custom-player-ad-container"]{display:none!important;visibility:hidden!important;pointer-events:none!important}',
-      '[class*="is-preroll"]{display:none!important;visibility:hidden!important}'
+      '[class*="custom-player-ad-container"]{opacity:0!important;pointer-events:none!important;}',
+      '[class*="is-preroll"]{opacity:0!important;pointer-events:none!important;}'
     ].join('');
     (document.head || document.documentElement).appendChild(s);
+  }
+
+
+  function insideOverlay(el) {
+    var n = el;
+    for (var i = 0; i < 8 && n && n !== document.body; i++, n = n.parentElement) {
+      var s;
+      try { s = getComputedStyle(n); } catch (e) { continue; }
+      if (s.position !== 'fixed' && s.position !== 'absolute') continue;
+      var r = n.getBoundingClientRect();
+      if (r.width * r.height >= innerWidth * innerHeight * 0.35) return true;
+    }
+    return false;
+  }
+
+  function findSkipAny(root) {
+    var best = null, bestScore = -1;
+    var all = (root || document).querySelectorAll('div,span,a,button,i,img,svg,p,label');
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      var r = el.getBoundingClientRect();
+      if (r.width < 6 || r.height < 6) continue;
+      var t = (el.textContent || '').trim();
+      var cls = (el.className && el.className.toString()) || '';
+      var aria = (el.getAttribute && (el.getAttribute('aria-label') || '')) || '';
+      var score = -1;
+      if (/^跳过/.test(t) && t.length <= 10) score = 12;
+      else if (t.indexOf('跳过') >= 0 && t.length <= 10) score = 10;
+      else if (/skip/i.test(cls + ' ' + aria) && t.length <= 10) score = 8;
+      else if (/^(×|✕|╳)$/.test(t)) score = 6;
+      else if (/close|关闭/i.test(cls + ' ' + aria) && t.length <= 10 && insideOverlay(el)) score = 4;
+      if (score < 0) continue;
+      if (!insideOverlay(el)) score -= 6;
+      if (score > bestScore) { bestScore = score; best = el; }
+    }
+    return bestScore >= 3 ? best : null;
+  }
+
+  function hardClick(el) {
+    try {
+      var r = el.getBoundingClientRect();
+      var x = r.left + r.width / 2, y = r.top + r.height / 2;
+      var opts = { bubbles: true, cancelable: true, clientX: x, clientY: y };
+      el.dispatchEvent(new PointerEvent('pointerdown', opts));
+      el.dispatchEvent(new TouchEvent('touchstart', opts));
+      el.dispatchEvent(new MouseEvent('mousedown', opts));
+      el.dispatchEvent(new PointerEvent('pointerup', opts));
+      el.dispatchEvent(new TouchEvent('touchend', opts));
+      el.dispatchEvent(new MouseEvent('mouseup', opts));
+      el.click();
+    } catch (e) {
+      try { el.click(); } catch (e2) {}
+    }
   }
 
   // 只认"跳过"，不要别的词，避免误伤
@@ -480,15 +565,38 @@
       var el = nodes[i];
       if (el.__deadsAdKilled) continue;
       el.__deadsAdKilled = 1;
+      // 1) 点它自带的跳过键（真按钮 .ad-skip-btn）
+      var skipBtn = el.querySelector('.ad-skip-btn, [class*="ad-skip-btn"]');
+      if (skipBtn) {
+        try { skipBtn.classList.remove('is-disabled'); } catch (e) {}
+        if (!skipBtn.__deadsSkipped) { skipBtn.__deadsSkipped = 1; hardClick(skipBtn); log('ad-skip-btn clicked'); }
+      }
+      // 2) 把广告 video 静音并拖到片尾，触发 ENDED -> 插件 removeAdContainer + next()
       var vs = el.querySelectorAll('video');
       for (var v = 0; v < vs.length; v++) {
+        try { vs[v].muted = true; } catch (e) {}
+        try { vs[v].play(); } catch (e) {}
         try {
-          vs[v].muted = true;
-          vs[v].pause();
-          if (vs[v].duration && isFinite(vs[v].duration)) { vs[v].currentTime = vs[v].duration; }
+          if (vs[v].duration && isFinite(vs[v].duration) && vs[v].duration > 0.3) {
+            vs[v].currentTime = vs[v].duration - 0.05;
+          }
         } catch (e) {}
       }
-      hideEl(el);
+      // duration 可能还没出来，300ms 后再补一刀
+      setTimeout(function (node) {
+        try {
+          var vv = node.querySelectorAll('video');
+          for (var q = 0; q < vv.length; q++) {
+            try {
+              if (vv[q].duration && isFinite(vv[q].duration) && vv[q].duration > 0.3) {
+                vv[q].muted = true;
+                vv[q].currentTime = vv[q].duration - 0.05;
+              }
+            } catch (e) {}
+          }
+        } catch (e) {}
+        hideEl(node);
+      }, 300);
       log('player preroll killed');
     }
   }
@@ -496,17 +604,11 @@
   // 开屏/引导层：有"跳过"就点它（App 自己的逻辑），再整层隐藏
   function killGuideOverlay() {
     // 只点"跳过"，让 App 自己卸载，绝不隐藏整层（隐藏 fixed-page 会把整页弄空白）
-    var skip = findSkipStrict(document);
+    var skip = findSkipAny(document);
     if (!skip || skip.__deadsSkipped) return;
-    var r = skip.getBoundingClientRect();
-    if (r.width < 8 || r.height < 8) return;
     skip.__deadsSkipped = 1;
-    try {
-      skip.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-      skip.click();
-      skip.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    } catch (e) {}
-    log('clicked skip');
+    hardClick(skip);
+    log('clicked skip: ' + ((skip.textContent || '').trim() || skip.className).toString().slice(0, 24));
   }
 
   function n04Main() {
@@ -515,11 +617,113 @@
     killGuideOverlay();
   }
 
+
+  /* ============ 12. 启动页（launch-box）专用 ============
+     实测 DOM（2026-11）：
+       fixed-page > fixed-inner > launch-box
+         > content-box > SECTION.m-i-w > IMG(430x805)   ← 开屏广告大图
+         > mask / footer-box / bar-box
+         > status-box (430x42) "3秒 点击跳过"            ← 倒计时+跳过
+      启动失败时 status-btn 文案变成 "启动异常, 点击重试"
+     策略：把广告大图直接藏掉，启动页保留（不影响初始化）；跳过键照点；
+           万一初始化失败，自动点"重试"最多 3 次。 */
+  function __deadsLaunchCss() {
+    if (document.querySelector('style[data-deads-launch]')) return;
+    var s = document.createElement('style');
+    s.setAttribute('data-deads-launch', '1');
+    s.textContent = '[class*="launch-box"] [class*="m-i-w"]{display:none!important;visibility:hidden!important;}' +
+                    '[class*="launch-box"] [class*="status-box"]{opacity:0!important;}';
+    (document.head || document.documentElement).appendChild(s);
+  }
+
+  var __launchRetry = 0, __launchRetryAt = 0;
+  function retryLaunchError() {
+    var btn = document.querySelector('[class*="status-btn"]');
+    if (!btn) return;
+    var t = (btn.textContent || '');
+    if (t.indexOf('启动异常') < 0 && t.indexOf('重试') < 0) return;
+    if (__launchRetry >= 3) return;
+    var now = Date.now();
+    if (now - __launchRetryAt < 2500) return;
+    __launchRetryAt = now;
+    __launchRetry++;
+    hardClick(btn);
+    log('launch error -> retry #' + __launchRetry);
+  }
+
+  function launchMain() {
+    __deadsLaunchCss();
+    retryLaunchError();
+  }
+
+
+  /* ============ 13. 贴片等待 7 秒：压缩定时器 + 点隐形跳过 ============
+     现象：广告层被藏了，但 App 仍要等它自己的 7 秒计时结束才放开正片，中途点播放会被暂停。
+     做法：
+       1) 只要贴片层存在于 DOM（哪怕被我们 display:none），就把 5~12 秒的 setTimeout 压到 150ms；
+       2) 贴片层内的"跳过"元素不再用 rect 过滤（display:none 时 rect 是 0，以前就是这样漏掉的），
+          纯按 class/文本命中就点。 */
+  var __rawSetTimeout = window.setTimeout;
+  window.setTimeout = function (fn, delay) {
+    try {
+      if (typeof delay === 'number' && delay >= 5000 && delay <= 12000) {
+        var adLayer = document.querySelector ? document.querySelector('[class*="is-preroll"],[class*="custom-player-ad-container"]') : null;
+        if (adLayer) {
+          log('timer compress ' + delay + ' -> 150');
+          delay = 150;
+        }
+      }
+    } catch (e) {}
+    var extra = [];
+    for (var i = 2; i < arguments.length; i++) extra.push(arguments[i]);
+    return __rawSetTimeout.apply(window, [fn, delay].concat(extra));
+  };
+
+  function findHiddenSkip(root) {
+    if (!root) return null;
+    var all = root.querySelectorAll('div,span,a,button,i,p,label');
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      var t = (el.textContent || '').trim();
+      var cls = (el.className && el.className.toString()) || '';
+      if (/^跳过/.test(t) && t.length <= 12) return el;
+      if (/skip/i.test(cls) && t.length <= 12) return el;
+      if (/^(×|✕|╳)$/.test(t)) return el;
+      if (/close/i.test(cls) && t.length <= 12) return el;
+    }
+    return null;
+  }
+
+
+  /* ============ 14. 贴片倒计时其实是 setInterval，不是 setTimeout ============
+     反编译 3409.xxx.js（播放器插件）看到：
+       adContainer.className = 'custom-player-ad-container is-preroll'
+       adContainer.innerHTML 含 <span class="ad-skip-btn is-disabled">
+       倒计时：this.timer = setInterval(...) 每秒 -1，到 0 才 next()
+       点跳过：if (elapsed - 1 >= canSkipAfter) { clearInterval(timer); next(); }
+     所以 v15 压 setTimeout 完全没效果。这里直接压 setInterval。 */
+  var __rawSetInterval = window.setInterval;
+  window.setInterval = function (fn, delay) {
+    try {
+      if (typeof delay === 'number' && delay >= 500 && delay <= 3000) {
+        var adLayer = document.querySelector ? document.querySelector('[class*="custom-player-ad-container"]') : null;
+        if (adLayer) {
+          log('interval compress ' + delay + ' -> 15');
+          delay = 15;
+        }
+      }
+    } catch (e) {}
+    var extra = [];
+    for (var i = 2; i < arguments.length; i++) extra.push(arguments[i]);
+    return __rawSetInterval.apply(window, [fn, delay].concat(extra));
+  };
+
   /* ---------- 启动 ---------- */
   function boot() {
     stub();
     stripAds(document);
     n04Main();
+    launchMain();
     dismissAnnouncementAd();
     killEmptyBackdrops();
 
@@ -548,6 +752,7 @@
       dismissAnnouncementAd();
       killEmptyBackdrops();
       n04Main();
+      launchMain();
       if (ticks > 40) clearInterval(t);
     }, 500);
   }
