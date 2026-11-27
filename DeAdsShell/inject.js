@@ -35,6 +35,8 @@
      sc-f7182143-5  FloatAdCloseButton       它的关闭键
      sc-f7182143-4  FloatAdImage
      这几个是纯广告节点，直接 display:none，不参与任何业务逻辑。 */
+  function __deadsCfg() { return window.__deadsConfig || {}; }
+
   function __deadsHideCss() {
     if (document.querySelector('style[data-deads-css]')) return;
     var css = [
@@ -87,6 +89,89 @@
   }
   __deadsFetchConfig();
 
+
+
+  /* ============ 17. 网络探针 ============
+     目的：抓出广告列表接口，之后可以在 WKContentRuleList 层直接拦掉，
+     从源头让插件拿不到素材 —— 那才是"零等待"的根治。 */
+  try {
+    var __rawFetch2 = window.fetch;
+    window.fetch = function (input, init) {
+      try {
+        var u = (typeof input === 'string') ? input : ((input && input.url) || '');
+        if (/ad|preroll|splash|promote|banner/i.test(u)) log('NET fetch ' + String(u).slice(0, 140));
+      } catch (e) {}
+      return __rawFetch2.apply(window, arguments);
+    };
+  } catch (e) {}
+  try {
+    var __xhrOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function (m, u) {
+      try { if (/ad|preroll|splash|promote|banner/i.test(u)) log('NET xhr ' + m + ' ' + String(u).slice(0, 140)); } catch (e) {}
+      return __xhrOpen.apply(this, arguments);
+    };
+  } catch (e) {}
+
+
+  /* ============ 18. 失败可见化 ============
+     页面空白时最需要知道"哪个资源没回来"。这里把 script/link 的加载失败、
+     JS 运行时异常、Promise 拒绝，全部写进日志环形缓冲，面板 logs= 可见。 */
+  try {
+    window.addEventListener('error', function (ev) {
+      try {
+        var t = ev.target || {};
+        var tag = t.tagName;
+        if (tag === 'SCRIPT' || tag === 'LINK' || tag === 'IMG') {
+          log('LOAD FAIL <' + tag + '> ' + String(t.src || t.href || '').slice(0, 140));
+        } else if (ev.message) {
+          log('JS ERR ' + String(ev.message).slice(0, 120));
+        }
+      } catch (e) {}
+    }, true);
+    window.addEventListener('unhandledrejection', function (ev) {
+      try { log('REJECT ' + String((ev.reason && ev.reason.message) || ev.reason).slice(0, 120)); } catch (e) {}
+    });
+  } catch (e) {}
+
+
+  /* ============ 20. 拦截强制跳转 ============
+     实测：播一秒就被带去 https://9091.ovwkst.cn/9091/index.html（广告落地页），
+     日志里还能看到 43.248.103.33:51010/app/download、vsres.mqnqrdg.cn 的 banner 素材。
+     手段：window.open 跨域直接掐、a[href] 点击跨域 preventDefault。
+     原生层的 decidePolicyForNavigationAction 也会拦（编译进二进制那部分）。 */
+  function __deadsSameHost(u) {
+    try {
+      var abs = new URL(String(u), location.href);
+      return abs.host === location.host;
+    } catch (e) { return true; }
+  }
+  try {
+    var __rawOpen2 = window.open;
+    window.open = function (u) {
+      try {
+        var s = String(u || '');
+        if (s && s !== 'about:blank' && !__deadsSameHost(s)) {
+          log('BLOCK window.open ' + s.slice(0, 110));
+          return null;
+        }
+      } catch (e) {}
+      return __rawOpen2.apply(window, arguments);
+    };
+  } catch (e) {}
+  try {
+    document.addEventListener('click', function (ev) {
+      var t = ev.target;
+      var a = (t && t.closest) ? t.closest('a[href]') : null;
+      if (!a) return;
+      var href = a.getAttribute('href') || '';
+      if (!href || href.charAt(0) === '#') return;
+      if (!__deadsSameHost(href)) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        log('BLOCK link ' + href.slice(0, 110));
+      }
+    }, true);
+  } catch (e) {}
 
   if (window.__deadsInstalled) return;
   var DEADS_V2 = true;
@@ -314,7 +399,8 @@
       var bdSel = __deadsBdSel();
       var bdEl = document.querySelector(bdSel);
       var cardEl = document.querySelector(__deadsAnnSel());
-      out.push('', '--- diag ---',
+      out.push('', '--- diag (v29) ---',
+        'ua=' + (navigator.userAgent || '').slice(0, 60),
         'cfg=' + JSON.stringify(window.__deadsConfig || {}).slice(0, 150),
         'bdSel=' + bdSel + '  bdFound=' + !!bdEl,
         'bdInlineStyle=' + (bdEl ? JSON.stringify(bdEl.getAttribute('style')) : 'n/a'),
@@ -322,8 +408,8 @@
         'cardFound=' + !!cardEl + ' cardRect=' + (cardEl ? Math.round(cardEl.getBoundingClientRect().width) + 'x' + Math.round(cardEl.getBoundingClientRect().height) : 'n/a'),
         'cssTag=' + !!document.querySelector('style[data-deads-css]') + ' n04Tag=' + !!document.querySelector('style[data-deads-n04]'),
         'compress=' + (window.__deadsCompress || 0),
-        'logs=' + __deadsRing.slice(-12).join(' / '));
-    } catch (e) {}
+        'logs=' + __deadsRing.slice(-14).join(' / '));
+    } catch (e) { out.push('diag error: ' + e); }
     var head = 'viewport ' + vw + 'x' + vh + '  url=' + location.href.slice(0, 80) + '\n--- fixed/absolute >=5% ---\n';
     return head + (out.length ? out.join('\n') : 'none');
   };
@@ -600,38 +686,12 @@
       var el = nodes[i];
       if (el.__deadsAdKilled) continue;
       el.__deadsAdKilled = 1;
-      // 1) 点它自带的跳过键（真按钮 .ad-skip-btn）
-      var skipBtn = el.querySelector('.ad-skip-btn, [class*="ad-skip-btn"]');
-      if (skipBtn) {
-        try { skipBtn.classList.remove('is-disabled'); } catch (e) {}
-        if (!skipBtn.__deadsSkipped) { skipBtn.__deadsSkipped = 1; hardClick(skipBtn); log('ad-skip-btn clicked'); }
-      }
-      // 2) 把广告 video 静音并拖到片尾，触发 ENDED -> 插件 removeAdContainer + next()
+      // v28：不再点跳过、不再拖进度（上次的 player error 可能就是这两步引起的）
+      // 只把它透明化，剩下的交给"抢播护法"
       var vs = el.querySelectorAll('video');
       for (var v = 0; v < vs.length; v++) {
         try { vs[v].muted = true; } catch (e) {}
-        try { vs[v].play(); } catch (e) {}
-        try {
-          if (vs[v].duration && isFinite(vs[v].duration) && vs[v].duration > 0.3) {
-            vs[v].currentTime = vs[v].duration - 0.05;
-          }
-        } catch (e) {}
       }
-      // duration 可能还没出来，300ms 后再补一刀
-      setTimeout(function (node) {
-        try {
-          var vv = node.querySelectorAll('video');
-          for (var q = 0; q < vv.length; q++) {
-            try {
-              if (vv[q].duration && isFinite(vv[q].duration) && vv[q].duration > 0.3) {
-                vv[q].muted = true;
-                vv[q].currentTime = vv[q].duration - 0.05;
-              }
-            } catch (e) {}
-          }
-        } catch (e) {}
-        hideEl(node);
-      }, 300);
       log('player preroll killed');
     }
   }
@@ -677,9 +737,20 @@
     if (!btn) return;
     var t = (btn.textContent || '');
     if (t.indexOf('启动异常') < 0 && t.indexOf('重试') < 0) return;
-    if (__launchRetry >= 3) return;
+    if (__launchRetry >= 6) return;
     var now = Date.now();
     if (now - __launchRetryAt < 2500) return;
+    if (__launchRetry >= 3) {
+      try {
+        var lastReload = +(sessionStorage.getItem('__deadsReloadAt') || 0);
+        if (now - lastReload > 60000) {
+          sessionStorage.setItem('__deadsReloadAt', String(now));
+          log('launch stuck -> reload page');
+          location.reload();
+          return;
+        }
+      } catch (e) {}
+    }
     __launchRetryAt = now;
     __launchRetry++;
     hardClick(btn);
@@ -698,21 +769,7 @@
        1) 只要贴片层存在于 DOM（哪怕被我们 display:none），就把 5~12 秒的 setTimeout 压到 150ms；
        2) 贴片层内的"跳过"元素不再用 rect 过滤（display:none 时 rect 是 0，以前就是这样漏掉的），
           纯按 class/文本命中就点。 */
-  var __rawSetTimeout = window.setTimeout;
-  window.setTimeout = function (fn, delay) {
-    try {
-      if (typeof delay === 'number' && delay >= 5000 && delay <= 12000) {
-        var adLayer = document.querySelector ? document.querySelector('[class*="is-preroll"],[class*="custom-player-ad-container"]') : null;
-        if (adLayer) {
-          log('timer compress ' + delay + ' -> 150');
-          delay = 150;
-        }
-      }
-    } catch (e) {}
-    var extra = [];
-    for (var i = 2; i < arguments.length; i++) extra.push(arguments[i]);
-    return __rawSetTimeout.apply(window, [fn, delay].concat(extra));
-  };
+  /* setTimeout 压缩已移除：它会把 axios 的 10s 超时计时器一起压掉，导致请求被误判超时 */
 
   function findHiddenSkip(root) {
     if (!root) return null;
@@ -737,22 +794,7 @@
        倒计时：this.timer = setInterval(...) 每秒 -1，到 0 才 next()
        点跳过：if (elapsed - 1 >= canSkipAfter) { clearInterval(timer); next(); }
      所以 v15 压 setTimeout 完全没效果。这里直接压 setInterval。 */
-  var __rawSetInterval = window.setInterval;
-  window.setInterval = function (fn, delay) {
-    try {
-      if (typeof delay === 'number' && delay >= 500 && delay <= 3000) {
-        var adLayer = document.querySelector ? document.querySelector('[class*="custom-player-ad-container"]') : null;
-        if (adLayer) {
-          window.__deadsCompress = (window.__deadsCompress || 0) + 1;
-          log('interval compress ' + delay + ' -> 15');
-          delay = 15;
-        }
-      }
-    } catch (e) {}
-    var extra = [];
-    for (var i = 2; i < arguments.length; i++) extra.push(arguments[i]);
-    return __rawSetInterval.apply(window, [fn, delay].concat(extra));
-  };
+  /* setInterval 压缩也已移除：不再篡改任何全局计时器，只做 DOM 层处理 */
 
 
   /* ============ 15. 公告遮罩定点清除 ============
@@ -814,7 +856,27 @@
         if (r.width < 100 || r.height < 60) continue;
         if (v.paused) { try { v.play(); } catch (e) {} }
       }
-    }, 150);
+    }, 100);
+  }
+
+
+  /* ============ 19. 播放器报错自动重试 ============
+     面板里出现 custom-player-error-box 时，点一次它的"重新加载/重试"，最多 2 次。 */
+  var __playerRetry = 0;
+  function fixPlayerError() {
+    var box = document.querySelector('[class*="custom-player-error-box"]');
+    if (!box || __playerRetry >= 2) return;
+    var all = box.querySelectorAll('div,span,a,button,p');
+    for (var i = 0; i < all.length; i++) {
+      var t = (all[i].textContent || '').trim();
+      if (!t || t.length > 8) continue;
+      if (/重新加载|重试|刷新|换线|切换/.test(t)) {
+        __playerRetry++;
+        hardClick(all[i]);
+        log('player error -> retry #' + __playerRetry);
+        return;
+      }
+    }
   }
 
   /* ---------- 启动 ---------- */
@@ -823,6 +885,7 @@
     stripAds(document);
     n04Main();
     launchMain();
+    fixPlayerError();
     dismissAnnouncementAd();
     killEmptyBackdrops();
     killAnnouncementBackdrop();
@@ -855,6 +918,7 @@
       killAnnouncementBackdrop();
       n04Main();
       launchMain();
+      fixPlayerError();
       if (ticks > 40) {
         clearInterval(t);
         var slow = setInterval(function () { dismissAnnouncementAd(); killEmptyBackdrops(); killAnnouncementBackdrop(); }, 2000);

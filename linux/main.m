@@ -203,6 +203,23 @@ static NSString *const kUA = @"Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac 
     [self showError:error.localizedDescription];
 }
 
+- (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)navigationAction decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
+    NSURL *url = navigationAction.request.URL;
+    NSString *host = url.host.lowercaseString ?: @"";
+    if (navigationAction.targetFrame.isMainFrame && host.length > 0) {
+        NSString *base = self.targets.count ? self.targets[0] : kDefaultTarget;
+        NSString *appHost = [NSURL URLWithString:base].host.lowercaseString ?: @"";
+        BOOL same = [host isEqualToString:appHost] || (appHost.length && [host hasSuffix:[@"." stringByAppendingString:appHost]]);
+        BOOL telemetry = [host hasSuffix:@"itguru.tw"];
+        if (!same && !telemetry) {
+            NSLog(@"[deads] block navigation -> %@", url.absoluteString);
+            decisionHandler(WKNavigationActionPolicyCancel);
+            return;
+        }
+    }
+    decisionHandler(WKNavigationActionPolicyAllow);
+}
+
 #pragma mark - WKUIDelegate
 
 - (WKWebView *)webView:(WKWebView *)webView
