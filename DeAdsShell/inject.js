@@ -158,6 +158,43 @@
       return __rawOpen2.apply(window, arguments);
     };
   } catch (e) {}
+
+  /* 再补一层：location.assign / replace / href 跨域一律拦掉（能改就改，改不了就忽略） */
+  try {
+    var __lp = Object.getPrototypeOf(window.location);
+    var __assign = __lp.assign, __replace = __lp.replace;
+    __lp.assign = function (u) {
+      if (!__deadsSameHost(u)) { log('BLOCK location.assign ' + String(u).slice(0, 110)); return; }
+      return __assign.call(this, u);
+    };
+    __lp.replace = function (u) {
+      if (!__deadsSameHost(u)) { log('BLOCK location.replace ' + String(u).slice(0, 110)); return; }
+      return __replace.call(this, u);
+    };
+    var __hrefDesc = Object.getOwnPropertyDescriptor(__lp, 'href');
+    if (__hrefDesc && __hrefDesc.set) {
+      Object.defineProperty(__lp, 'href', {
+        configurable: true,
+        get: __hrefDesc.get,
+        set: function (u) {
+          if (!__deadsSameHost(u)) { log('BLOCK location.href ' + String(u).slice(0, 110)); return; }
+          return __hrefDesc.set.call(this, u);
+        }
+      });
+    }
+  } catch (e) { log('location patch failed: ' + e); }
+
+  /* 分离的 <a>.click() 不冒泡到 document，会绕过点击拦截 —— 这里直接改原型 */
+  try {
+    var __aClick = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {
+      try {
+        var h = this.href;
+        if (h && !__deadsSameHost(h)) { log('BLOCK a.click ' + String(h).slice(0, 110)); return; }
+      } catch (e) {}
+      return __aClick.apply(this, arguments);
+    };
+  } catch (e) {}
   try {
     document.addEventListener('click', function (ev) {
       var t = ev.target;
@@ -171,6 +208,35 @@
         log('BLOCK link ' + href.slice(0, 110));
       }
     }, true);
+  } catch (e) {}
+
+
+  /* ============ 0a. 回旋镖：跑错站就弹回来 ============
+     广告落地页会把整页导航到别的域名（实测 9091.ovwkst.cn、acolxgig9gg.671ldy0014.cc）。
+     JS 层的 window.open / a.click / location 补丁只能挡一部分，原生导航挡不住。
+     那就反过来：注入脚本在任何页面都会执行，发现自己不在 App 域名上，立刻 replace 回去。
+     这里必须用"还没被打补丁"的原生 location.replace。 */
+  try {
+    var __cfg0 = window.__deadsConfig || {};
+    var __home0 = (__cfg0.targets && __cfg0.targets[0]) || '';
+    if (__home0) {
+      var __allowed = [];
+      for (var __i = 0; __i < (__cfg0.targets || []).length; __i++) {
+        try { __allowed.push(new URL(__cfg0.targets[__i]).host); } catch (e) {}
+      }
+      if (!__allowed.length) { try { __allowed.push(new URL(__home0).host); } catch (e) {} }
+      var __curHost = location.host;
+      var __ok = false;
+      for (var __j = 0; __j < __allowed.length; __j++) {
+        if (!__allowed[__j]) continue;
+        if (__curHost === __allowed[__j]) { __ok = true; break; }
+      }
+      if (__curHost && !__ok &&
+          !/(^|\.)itguru\.tw$/.test(__curHost) &&
+          !/(^|\.)jsdelivr\.net$/.test(__curHost)) {
+        location.replace(__home0);
+      }
+    }
   } catch (e) {}
 
   if (window.__deadsInstalled) return;
@@ -399,7 +465,7 @@
       var bdSel = __deadsBdSel();
       var bdEl = document.querySelector(bdSel);
       var cardEl = document.querySelector(__deadsAnnSel());
-      out.push('', '--- diag (v29) ---',
+      out.push('', '--- diag (v30) ---',
         'ua=' + (navigator.userAgent || '').slice(0, 60),
         'cfg=' + JSON.stringify(window.__deadsConfig || {}).slice(0, 150),
         'bdSel=' + bdSel + '  bdFound=' + !!bdEl,
